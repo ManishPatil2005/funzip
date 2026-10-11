@@ -22,7 +22,7 @@ from typing import Any
 
 import httpx
 
-from ofx.domain import AggressorSide, Candle, DepthSnapshot, Instrument, Quote, Trade
+from ofx.domain import AggressorSide, Candle, DepthLevel, DepthSnapshot, Instrument, Quote, Trade
 from ofx.providers.base import Capabilities, ProviderUnsupported
 
 INDIA_REST, INDIA_WS = "https://api.india.delta.exchange", "wss://socket.india.delta.exchange"
@@ -64,6 +64,15 @@ def parse_trade(d: Mapping[str, Any], seq: int = 0, verified: bool = False) -> T
         side = AggressorSide.UNKNOWN
     method = "exchange" if (verified and side is not AggressorSide.UNKNOWN) else ("unverified_exchange" if side is not AggressorSide.UNKNOWN else "none")
     return Trade(ts, float(d["price"]), float(d["size"] if d.get("size") is not None else d["quantity"]), side, seq, method)
+
+
+def parse_l2(m: Mapping[str, Any], seq: int = 0) -> DepthSnapshot:
+    """l2_orderbook message -> DepthSnapshot. Fields buy/sell [{limit_price, size}] per docs [unverified]."""
+    bids = tuple(sorted((DepthLevel(float(x["limit_price"]), float(x["size"])) for x in m.get("buy", [])), key=lambda l: -l.price))
+    asks = tuple(sorted((DepthLevel(float(x["limit_price"]), float(x["size"])) for x in m.get("sell", [])), key=lambda l: l.price))
+    raw = float(m.get("timestamp") or 0)
+    ts = datetime.fromtimestamp(raw / 1e6 if raw > 1e14 else raw / 1e3 if raw > 1e11 else raw, tz=UTC) if raw else datetime.now(UTC)
+    return DepthSnapshot(ts, bids, asks, seq)
 
 
 def parse_candles(rows: Sequence[Mapping[str, Any]]) -> list[Candle]:
@@ -133,9 +142,16 @@ class DeltaProvider:
                         seq += 1
                         yield parse_trade(d, seq, self._verified)
 
-    async def stream_depth(self, iid: str) -> AsyncIterator[DepthSnapshot]:  # pragma: no cover
-        raise ProviderUnsupported("depth stream parsing not implemented; needs live payload confirmation (l2_orderbook)")
-        yield
+    async def stream_depth(self, iid: str) -> AsyncIterator[DepthSnapshot]:  # pragma: no cover - needs a live socket
+        import websockets
+        seq = 0
+        async with websockets.connect(self._ws, ping_interval=20) as ws:
+            await ws.send(self._subscribe_msg(iid, "l2_orderbook"))
+            async for raw in ws:
+                m = json.loads(raw)
+                if m.get("type") == "l2_orderbook" and ("buy" in m or "sell" in m):
+                    seq += 1
+                    yield parse_l2(m, seq)
 
     async def stream_quotes(self, iid: str) -> AsyncIterator[Quote]:  # pragma: no cover
         raise ProviderUnsupported("quote stream not implemented")

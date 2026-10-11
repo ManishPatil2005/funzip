@@ -58,3 +58,10 @@ def test_signing_and_repr():
 def test_angel_password_alias():
     env = {"ANGEL_SMARTAPI_KEY": "a", "ANGEL_CLIENT_ID": "b", "ANGEL_PASSWORD": "c", "ANGEL_TOTP_SECRET": "d"}
     assert angel.credentials_from_env(env)["ANGEL_PIN"] == "c"
+
+
+def test_parse_l2_sorts_best_first():
+    from ofx.providers.delta import parse_l2
+    s = parse_l2({"buy": [{"limit_price": "99", "size": 5}, {"limit_price": "100", "size": 2}],
+                  "sell": [{"limit_price": "102", "size": 1}, {"limit_price": "101", "size": 3}], "timestamp": 1_767_600_000_000_000}, 7)
+    assert [l.price for l in s.bids] == [100, 99] and [l.price for l in s.asks] == [101, 102] and s.seq == 7

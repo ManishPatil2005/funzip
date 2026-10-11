@@ -19,7 +19,7 @@ from zoneinfo import ZoneInfo
 
 import httpx
 
-from ofx.domain import Candle, Instrument, Trade
+from ofx.domain import AggressorSide, Candle, Instrument, Trade
 from ofx.providers.base import Capabilities, ProviderUnsupported
 from ofx.providers.totp import totp
 
@@ -65,6 +65,36 @@ def parse_candles(rows: Sequence[Sequence], ) -> list[Candle]:
     return sorted(out, key=lambda c: c.ts_open)
 
 
+EXCHANGE_TYPE = {"NSE": 1, "NFO": 2, "BSE": 3, "BFO": 4, "MCX": 5, "NCDEX": 7, "CDS": 13}  # per SmartAPI docs [unverified]
+
+
+def ticks_to_trade(tick: Mapping, state: dict) -> Trade | None:
+    """Convert one SDK tick dict to a Trade, or None when no new volume traded.
+
+    Prices arrive in paise (divide by 100). qty = increase in day volume since the previous tick; the
+    first tick only primes the state. Side = quote rule: last price >= best ask -> ASK, <= best bid -> BID,
+    otherwise UNKNOWN (never guessed).
+    """
+    vol = tick.get("volume_trade_for_the_day")
+    ltp = tick.get("last_traded_price")
+    if vol is None or ltp is None:
+        return None
+    prev, state["vol"] = state.get("vol"), vol
+    if prev is None or vol <= prev:
+        return None
+    px = float(ltp) / 100.0
+    bids, asks = tick.get("best_5_buy_data") or [], tick.get("best_5_sell_data") or []
+    side = AggressorSide.UNKNOWN
+    if bids and asks:
+        bid, ask = float(bids[0]["price"]) / 100.0, float(asks[0]["price"]) / 100.0
+        if bid < ask:
+            side = AggressorSide.ASK if px >= ask else AggressorSide.BID if px <= bid else AggressorSide.UNKNOWN
+    ms = tick.get("exchange_timestamp")
+    ts = datetime.fromtimestamp(ms / 1000.0, tz=UTC) if ms else datetime.now(UTC)
+    state["seq"] = state.get("seq", 0) + 1
+    return Trade(ts, px, float(vol - prev), side, state["seq"], "quote_rule" if side is not AggressorSide.UNKNOWN else "none")
+
+
 class AngelProvider:
     capabilities = CAPABILITIES
 
@@ -74,6 +104,7 @@ class AngelProvider:
         self._tokens = dict(tokens or {})  # iid -> (exchange, symboltoken)
         self._http = client or httpx.AsyncClient(base_url=BASE, timeout=15)
         self._jwt: str | None = None
+        self._feed_token: str | None = None
         self._clock = clock
 
     def __repr__(self) -> str:
@@ -96,6 +127,7 @@ class AngelProvider:
             # Message only: never echo the request body (it holds the PIN and TOTP).
             raise AngelAuthError(f"login failed: {j.get('message', r.status_code)}")
         self._jwt = j["data"]["jwtToken"]
+        self._feed_token = j["data"].get("feedToken")
 
     async def instruments(self) -> Sequence[Instrument]:
         return [Instrument(iid, iid.split(":")[-1], ex, 0.05) for iid, (ex, _tok) in self._tokens.items()]
@@ -129,8 +161,36 @@ class AngelProvider:
     async def trades(self, iid: str, start: datetime, end: datetime) -> Sequence[Trade]:
         raise ProviderUnsupported("Angel One offers no historical trades; record live ticks forward instead")
 
-    async def stream_trades(self, iid: str) -> AsyncIterator[Trade]:  # pragma: no cover - needs live session
-        raise ProviderUnsupported("live stream wiring requires the SmartAPI websocket SDK and a live session [unverified]")
-        yield  # makes this an async generator
+    async def stream_trades(self, iid: str) -> AsyncIterator[Trade]:  # pragma: no cover - needs a live session
+        """Live ticks via the official SmartAPI websocket SDK (lazy import, runs in its own thread).
+
+        Snapshot feed => a 'trade' is inferred from the rise in day volume between snapshots (see
+        ticks_to_trade). Side comes from the quote rule against the best bid/ask in the same tick, so
+        data quality is ESTIMATED. SDK callback shapes are UNVERIFIED until run against a live session.
+        """
+        import asyncio
+
+        from SmartApi.smartWebSocketV2 import SmartWebSocketV2  # type: ignore[import-not-found]
+
+        if self._jwt is None:
+            await self.login()
+        exch, tok = self._tokens[iid]
+        loop = asyncio.get_running_loop()
+        q: asyncio.Queue = asyncio.Queue()
+        feed_token = self._feed_token
+        ws = SmartWebSocketV2(self._jwt, self._c["ANGEL_SMARTAPI_KEY"], self._c["ANGEL_CLIENT_ID"], feed_token)
+        ws.on_data = lambda _w, msg: loop.call_soon_threadsafe(q.put_nowait, msg)
+        ws.on_open = lambda _w: ws.subscribe("ofx", 3, [{"exchangeType": EXCHANGE_TYPE[exch], "tokens": [tok]}])
+        task = loop.run_in_executor(None, ws.connect)
+        state: dict = {"vol": None, "seq": 0}
+        try:
+            while True:
+                tick = await q.get()
+                tr = ticks_to_trade(tick, state)
+                if tr is not None:
+                    yield tr
+        finally:
+            ws.close_connection()
+            task.cancel()
 
     stream_depth = stream_quotes = stream_trades  # type: ignore[assignment]

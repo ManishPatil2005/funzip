@@ -67,3 +67,17 @@ def test_no_historical_trades():
     from ofx.providers.base import ProviderUnsupported
     with pytest.raises(ProviderUnsupported):
         asyncio.run(angel.AngelProvider(CREDS).trades("x", datetime.now(UTC), datetime.now(UTC)))
+
+
+def test_ticks_to_trade_volume_delta_and_quote_rule():
+    st: dict = {}
+    base = {"last_traded_price": 10050, "volume_trade_for_the_day": 1000, "exchange_timestamp": 1_767_600_000_000,
+            "best_5_buy_data": [{"price": 10040}], "best_5_sell_data": [{"price": 10050}]}
+    assert angel.ticks_to_trade(base, st) is None  # first tick primes state
+    t = angel.ticks_to_trade({**base, "volume_trade_for_the_day": 1030}, st)
+    assert t.qty == 30 and t.price == 100.5 and t.side.value == "ask" and t.side_method == "quote_rule"
+    assert angel.ticks_to_trade({**base, "volume_trade_for_the_day": 1030}, st) is None  # no new volume
+    mid = angel.ticks_to_trade({**base, "last_traded_price": 10045, "volume_trade_for_the_day": 1040}, st)
+    assert mid.side.value == "unknown" and mid.side_method == "none"  # inside the spread: never guessed
+    crossed = {**base, "best_5_buy_data": [{"price": 10060}], "volume_trade_for_the_day": 1050}
+    assert angel.ticks_to_trade(crossed, st).side.value == "unknown"  # crossed book ignored

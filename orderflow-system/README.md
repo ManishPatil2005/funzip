@@ -21,7 +21,8 @@ Full stack: copy `.env.example` to `.env`, fill it locally, then `docker compose
 | TimescaleDB hypertables | written, **not executed** |
 | Angel One REST (login/TOTP/candles) | built, tested on **mocked** responses only |
 | Delta Exchange public data (products, candles, recent trades, trade parsing) | built, tested on **mocked** responses only |
-| Angel live websocket; Delta depth stream | **not built** |
+| Angel live ticks (SDK bridge + tick→trade conversion) | conversion tested; SDK bridge **untested live** |
+| Delta depth stream (`l2_orderbook`) | parser tested on mocked payload; socket **untested live** |
 
 Live check (read-only, run on your machine; the build sandbox cannot reach the exchanges): `cd backend && python scripts/smoke_live.py`
 
