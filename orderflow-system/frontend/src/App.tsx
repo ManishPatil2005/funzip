@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { createChart, type IChartApi, type ISeriesApi } from "lightweight-charts";
 import { FootprintLayer } from "./components/FootprintLayer";
 import { CvdPane, HeatmapCanvas } from "./components/Panels";
+import { ProfilePanel } from "./components/ProfilePanel";
 import { connectWS, fetchFootprint, fetchHeatmap, fetchObservations } from "./lib/net";
 import type { FootprintBarDTO, ObservationDTO, Quality } from "./lib/types";
 
@@ -63,6 +64,8 @@ export default function App() {
       <CvdPane bars={bars} width={W} height={120} />
       <h4>Liquidity heatmap <span style={{ fontSize: 12, color: "#9ca3af" }}>(synthetic depth; resting quantity is intent, not execution)</span></h4>
       <HeatmapCanvas intensity={heat} width={W} height={160} />
+      <h4>Market Profile (TPO)</h4>
+      <ProfilePanel iid="SYN:TEST" tick={0.5} start="2026-01-05T00:00:00Z" end="2026-01-05T06:00:00Z" session="CRYPTO" />
       <h4>Observations (descriptive, not instructions)</h4>
       <ul style={{ fontSize: 13, lineHeight: 1.5 }}>
         {obs.slice(0, 12).map((o, i) => (

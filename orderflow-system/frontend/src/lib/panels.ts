@@ -47,3 +47,25 @@ export function heatmapPixels(intensity: number[][]): { width: number; height: n
   }
   return { width, height, data };
 }
+
+export interface TpoProfileDTO {
+  start: string;
+  counts: Record<string, number>;
+  letters: Record<string, string>;
+  levels: { poc: number; vah: number; val: number; ib_high: number | null; ib_low: number | null; single_print_ranges: [number, number][] };
+}
+export interface TpoLine { price: number; letters: string; count: number; tags: string[] }
+
+/** Text rows for a TPO profile, highest price first, tagged POC / VA / IB / SP (single print). */
+export function tpoLines(p: TpoProfileDTO, tick: number): TpoLine[] {
+  const rows = Object.keys(p.counts).map(Number).sort((a, b) => b - a);
+  return rows.map((r) => {
+    const price = Math.round(r * tick * 1e8) / 1e8;
+    const L = p.levels, tags: string[] = [];
+    if (price === L.poc) tags.push("POC");
+    if (price <= L.vah && price >= L.val) tags.push("VA");
+    if (L.ib_high !== null && L.ib_low !== null && price <= L.ib_high && price >= L.ib_low) tags.push("IB");
+    if (L.single_print_ranges.some(([a, b]) => price >= a && price <= b)) tags.push("SP");
+    return { price, letters: p.letters[String(r)] ?? "", count: p.counts[String(r)] ?? 0, tags };
+  });
+}

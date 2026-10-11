@@ -81,3 +81,19 @@ describe("panels", () => {
     expect([...px.data.slice(8, 11)]).toEqual([8, 16, 48]);
   });
 });
+
+import { tpoLines } from "../src/lib/panels";
+
+describe("tpo", () => {
+  it("orders rows high to low and tags POC, value area, IB and single prints", () => {
+    const p = {
+      start: "x", counts: { "102": 1, "101": 3, "100": 2 }, letters: { "102": "C", "101": "ABC", "100": "AB" },
+      levels: { poc: 101, vah: 101, val: 100, ib_high: 101, ib_low: 100, single_print_ranges: [[102, 102]] as [number, number][] },
+    };
+    const lines = tpoLines(p, 1);
+    expect(lines.map((l) => l.price)).toEqual([102, 101, 100]);
+    expect(lines[1]!.tags).toEqual(["POC", "VA", "IB"]);
+    expect(lines[0]!.tags).toEqual(["SP"]);
+    expect(lines[2]!.letters).toBe("AB");
+  });
+});
