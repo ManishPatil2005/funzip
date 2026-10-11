@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% block title %}Strategy Builder · Market Scanner{% endblock %}
+{% block content %}
+<section class="panel">
+  <h1>Strategy Builder</h1>
+  <p class="muted">Combine indicators and price fields into buy and sell rules. Rules are validated and run by a fixed interpreter; no code is executed.</p>
+  <div class="grid controls">
+    <label>Name <input id="name" type="text" maxlength="60" placeholder="My pullback strategy"></label>
+    <label class="wide">Description <input id="desc" type="text" maxlength="300" placeholder="Optional"></label>
+    <label>Template
+      <select id="template"><option value="">Load a template…</option></select>
+    </label>
+  </div>
+
+  <div class="cols">
+    <div class="group" id="buygroup">
+      <div class="grouphead"><h2>Buy when</h2>
+        <select id="buymode" aria-label="Buy match mode"><option value="all">ALL conditions</option><option value="any">ANY condition</option></select></div>
+      <div class="conds" id="buyconds"></div>
+      <button type="button" class="ghost" id="addbuy">+ Condition</button>
+    </div>
+    <div class="group" id="sellgroup">
+      <div class="grouphead"><h2>Sell when</h2>
+        <select id="sellmode" aria-label="Sell match mode"><option value="all">ALL conditions</option><option value="any">ANY condition</option></select></div>
+      <div class="conds" id="sellconds"></div>
+      <button type="button" class="ghost" id="addsell">+ Condition</button>
+    </div>
+  </div>
+
+  <div class="actions">
+    <label class="inline">Test on <input id="testsym" type="text" value="NIFTY50" maxlength="30" size="12"></label>
+    <select id="testint" aria-label="Test interval"></select>
+    <button type="button" id="test" class="ghost">Test</button>
+    <button type="button" id="save" class="primary">Save strategy</button>
+    <span id="status" class="muted" aria-live="polite"></span>
+  </div>
+  <pre id="testout" class="out" hidden></pre>
+</section>
+
+<section class="panel">
+  <h2>Saved strategies</h2>
+  <div id="saved"><p class="muted">Loading…</p></div>
+  <details>
+    <summary>JSON definition</summary>
+    <textarea id="json" rows="12" spellcheck="false" aria-label="Strategy JSON"></textarea>
+    <button type="button" class="ghost" id="importjson">Load from JSON</button>
+  </details>
+</section>
+{% endblock %}
+{% block scripts %}<script src="/static/builder.js?v={{ version }}"></script>{% endblock %}

@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% block title %}Market Profile · Market Scanner{% endblock %}
+{% block content %}
+<section class="panel">
+  <h1>Market Profile <span class="muted small">Dalton TPO</span></h1>
+  <form id="pform" class="grid controls">
+    <label>Symbol <input id="symbol" list="symlist" type="text" value="NIFTY50" maxlength="30" autocomplete="off" spellcheck="false"></label>
+    <datalist id="symlist"></datalist>
+    <label>Bars <select id="interval"><option value="30m">30 min</option><option value="15m">15 min</option><option value="5m">5 min</option></select></label>
+    <label>History <select id="period"><option value="1mo">1 month</option><option value="5d">5 days</option></select></label>
+    <label>Session <select id="date"><option value="">Latest</option></select></label>
+    <div class="formbtn"><button type="submit" class="primary">Load profile</button></div>
+  </form>
+  <div id="status" class="muted" aria-live="polite"></div>
+</section>
+
+<div id="view" hidden>
+  <div class="split">
+    <section class="panel chartpanel">
+      <div class="charthead">
+        <h2 id="charttitle">Profile</h2>
+        <div class="legend">
+          <span class="key va">Value area</span><span class="key poc">POC</span>
+          <span class="key ib">Initial balance</span><span class="key pri">Prior value</span>
+          <span class="key sp">Single prints</span>
+        </div>
+      </div>
+      <div id="chart" class="chart"></div>
+    </section>
+
+    <aside class="side">
+      <section class="panel" id="biascard"></section>
+      <section class="panel"><h2>Structure</h2><dl id="facts" class="facts"></dl></section>
+      <section class="panel"><h2>Why</h2><ul id="reasons" class="reasons"></ul></section>
+      <section class="panel"><h2>Levels and notes</h2><div id="levels"></div><ul id="notes" class="reasons"></ul></section>
+    </aside>
+  </div>
+
+  <section class="panel">
+    <h2>Recent sessions</h2>
+    <div class="tablewrap"><table id="history">
+      <thead><tr><th>Date</th><th>Day type</th><th>Shape</th><th>VAL</th><th>POC</th><th>VAH</th><th>High</th><th>Low</th></tr></thead>
+      <tbody></tbody></table></div>
+  </section>
+</div>
+{% endblock %}
+{% block scripts %}<script src="/static/profile.js?v={{ version }}"></script>{% endblock %}

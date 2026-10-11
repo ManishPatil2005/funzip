@@ -1,0 +1,17 @@
+[project]
+name = "ofx"
+version = "0.1.0"
+requires-python = ">=3.12"
+dependencies = ["fastapi>=0.110", "uvicorn[standard]>=0.29", "numpy>=1.26", "pydantic>=2"]
+[project.optional-dependencies]
+dev = ["pytest", "httpx", "ruff", "mypy", "pglast"]
+redis = ["redis>=5"]
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+[tool.ruff]
+line-length = 130
+[tool.mypy]
+ignore_missing_imports = true
+[tool.ruff.lint]
+select = ["E", "F", "I", "B"]
+ignore = ["E501", "E701", "E702", "E741", "B905", "B008"]

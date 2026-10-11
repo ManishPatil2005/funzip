@@ -1,0 +1,61 @@
+{% extends "base.html" %}
+{% block title %}Scanner · Market Scanner{% endblock %}
+{% block content %}
+<section class="panel">
+  <h1>Scanner</h1>
+  <form id="scanform" class="grid controls">
+    <label>Universe
+      <select id="universe">
+        <option value="NIFTY50">NIFTY 50 stocks</option>
+        <option value="NSE_INDICES">NSE indices</option>
+        <option value="MCX">MCX (global proxies)</option>
+        <option value="ALL">Everything</option>
+      </select>
+    </label>
+    <label>Interval
+      <select id="interval"></select>
+    </label>
+    <label>History
+      <select id="period"></select>
+    </label>
+    <label>Signal filter
+      <select id="signal">
+        <option value="">Buy and sell</option>
+        <option value="BUY">Buy only</option>
+        <option value="SELL">Sell only</option>
+      </select>
+    </label>
+    <label class="wide">Custom symbols <span class="hint">(optional, comma-separated; overrides universe; use NSE:SYMBOL for other NSE stocks)</span>
+      <input id="symbols" type="text" maxlength="600" placeholder="RELIANCE, TCS, NSE:IRCTC, GOLD">
+    </label>
+  </form>
+
+  <div class="cols">
+    <div>
+      <h2>Built-in strategies</h2>
+      <div id="strategies" class="strategies"></div>
+    </div>
+    <div>
+      <h2>Your saved strategies</h2>
+      <div id="customs" class="strategies"><p class="muted">None saved yet. Create one in the <a href="/builder">Strategy Builder</a>.</p></div>
+    </div>
+  </div>
+  <div class="actions">
+    <button id="run" type="button" class="primary">Run scan</button>
+    <button id="selall" type="button" class="ghost">Select all</button>
+    <button id="selnone" type="button" class="ghost">Clear</button>
+    <span id="status" class="muted" aria-live="polite"></span>
+  </div>
+</section>
+
+<section class="panel" id="resultpanel" hidden>
+  <h2 id="resulttitle">Results</h2>
+  <div class="tablewrap">
+    <table id="results">
+      <thead><tr><th>Symbol</th><th>Price</th><th>Chg %</th><th>Signals</th><th></th></tr></thead>
+      <tbody></tbody>
+    </table>
+  </div>
+</section>
+{% endblock %}
+{% block scripts %}<script src="/static/scanner.js?v={{ version }}"></script>{% endblock %}

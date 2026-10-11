@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="referrer" content="no-referrer">
+  <title>{% block title %}Market Scanner{% endblock %}</title>
+  <link rel="stylesheet" href="/static/style.css?v={{ version }}">
+</head>
+<body data-page="{{ page }}">
+  <header class="top">
+    <div class="brand"><span class="logo" aria-hidden="true">▤</span> Market Scanner</div>
+    <nav aria-label="Primary">
+      <a href="/" {% if page == 'scanner' %}aria-current="page"{% endif %}>Scanner</a>
+      <a href="/builder" {% if page == 'builder' %}aria-current="page"{% endif %}>Strategy Builder</a>
+      <a href="/profile" {% if page == 'profile' %}aria-current="page"{% endif %}>Market Profile</a>
+    </nav>
+    <form id="keyform" class="keyform" autocomplete="off">
+      <label for="apikey" class="sr">API key</label>
+      <input id="apikey" type="password" placeholder="API key" autocomplete="off" spellcheck="false">
+      <button type="submit" class="ghost">Set</button>
+    </form>
+  </header>
+  <main>
+    <div id="notice" class="notice" role="status" hidden></div>
+    {% block content %}{% endblock %}
+  </main>
+  <footer class="foot">
+    Educational analysis only; not investment advice. Data via Yahoo Finance (delayed, unofficial);
+    MCX symbols are global futures proxies. Verify prices with your broker before trading.
+  </footer>
+  <script src="/static/common.js?v={{ version }}"></script>
+  {% block scripts %}{% endblock %}
+</body>
+</html>
