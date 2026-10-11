@@ -56,3 +56,28 @@ describe("net", () => {
     expect(backoffMs(1, () => 0)).toBe(800); expect(backoffMs(1, () => 1)).toBe(1200);
   });
 });
+
+import { cvdSegments, heatmapPixels, profileBars } from "../src/lib/panels";
+
+describe("panels", () => {
+  it("profile bars scale to the peak and flag POC / value area", () => {
+    const bars = profileBars({ "100": 10, "101": 40, "102": 20 }, { poc_row: 101, vah_row: 102, val_row: 101 }, 1, (p) => 500 - p * 4, 100);
+    expect(bars.find((b) => b.row === 101)!.w).toBe(100);
+    expect(bars.find((b) => b.row === 100)!.w).toBe(25);
+    expect(bars.find((b) => b.row === 101)!.isPoc).toBe(true);
+    expect(bars.find((b) => b.row === 100)!.inValueArea).toBe(false);
+  });
+  it("cvd breaks the line at a session reset", () => {
+    const mk = (o: number, c: number) => ({ cvd_open: o, cvd_close: c }) as never;
+    const segs = cvdSegments([mk(0, 5), mk(5, 9), mk(0, 3), mk(3, 4)], 300, 100);
+    expect(segs).toHaveLength(2);
+    expect(segs[0]).toHaveLength(2);
+    expect(cvdSegments([], 10, 10)).toEqual([]);
+  });
+  it("heatmap pixels flip rows so high prices are on top and use the shared colour ramp", () => {
+    const px = heatmapPixels([[0, 0], [1, 1]]); // row 0 = lowest price
+    expect(px.width).toBe(2); expect(px.height).toBe(2);
+    expect([...px.data.slice(0, 3)]).toEqual([220, 50, 40]); // top pixel row = highest price = hottest
+    expect([...px.data.slice(8, 11)]).toEqual([8, 16, 48]);
+  });
+});

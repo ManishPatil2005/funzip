@@ -18,6 +18,7 @@ Full stack: copy `.env.example` to `.env`, fill it locally, then `docker compose
 | REST API, WebSocket hub, rate limit, API key | built, tested |
 | Live ingest (provider → bars → WebSocket) | built, tested with fake/synthetic feeds |
 | PostgreSQL store + replay | built, tested on real PostgreSQL 16 |
+| Forward recorder, CSV/JSON export, CVD pane, heatmap canvas, profile layout | built, tested |
 | TimescaleDB hypertables | written, **not executed** |
 | Angel One REST (login/TOTP/candles) | built, tested on **mocked** responses only |
 | Delta Exchange public data (products, candles, recent trades, trade parsing) | built, tested on **mocked** responses only |

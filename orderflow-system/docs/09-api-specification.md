@@ -11,9 +11,11 @@ Auth: header `x-api-key` when `OFX_API_KEY` is set (constant-time compare); `/he
 | GET `/api/v1/market-profile` | `iid, tick, start, end, session(NSE\|MCX\|CRYPTO), period(5–60)` | `{profiles:[{start, counts, letters, levels}], note}` |
 | GET `/api/v1/observations` | `iid, tick, start, end, tf` | `{provider, observations:[Observation.to_dict()]}` |
 | GET `/api/v1/heatmap` | `iid, tick, start, end, dt(0–3600 s), scale(linear\|log\|percentile), mode(max\|avg)` | `{provider, depth_levels, t_start, dt_seconds, row_lo, tick, shape:[rows,cols], intensity:[[0..1]], note}`; span ≤ 6 h and ≤ 200k cells, else 400 |
+| GET `/api/v1/export/footprint` | same as footprint + `format=csv\|json` | CSV rows `ts_open,row,price,bid_vol,ask_vol,delta,bar_quality` or the JSON payload |
 | WS `/ws/v1/stream` | `topic`, `x_api_key` (if enabled) | JSON messages; `dropped` counter after backpressure; close 4401 on bad key |
 
 Row → price: `price = row × tick`. Observation fields: `kind, ts_start, ts_end, price_low, price_high, summary, evidence, data_quality, method, confidence, alternative_readings, limitations, teaching_ref`.
 **Rate limit:** token bucket per client IP, `OFX_RATE_PER_MIN` (default 120, 0 disables), 429 + `Retry-After`; `X-Forwarded-For` is trusted only when `OFX_TRUST_PROXY=1`. `/health` is exempt.
 **Live ingest:** set `OFX_LIVE_IID` (+ `OFX_LIVE_TICK`, `OFX_LIVE_TF`) to stream a provider into topic `<iid>:footprint`; messages `{type:"footprint", closed:bool, bar}`. Providers without an aggressor flag pass through a streaming tick rule (first print stays unknown).
+**Forward recording:** with `OFX_LIVE_IID` and `OFX_DATABASE_URL` set, live trades are batched into `trades` (idempotent) and each closed bar is stored once; the recorded stream becomes the history (Angel offers none).
 **Not yet built [gap]:** pagination; a real depth source for the heatmap (only the synthetic provider supplies depth history); live Angel websocket wiring; Delta adapter.

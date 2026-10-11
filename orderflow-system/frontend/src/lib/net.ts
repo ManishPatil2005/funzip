@@ -32,3 +32,5 @@ export function connectWS(topic: string, onMessage: (m: unknown) => void, onStat
   open();
   return () => { stop = true; clearTimeout(timer); ws?.close(); };
 }
+
+export const fetchHeatmap = (p: Record<string, string | number>) => getJSON<{ intensity: number[][] }>("/api/v1/heatmap", p);

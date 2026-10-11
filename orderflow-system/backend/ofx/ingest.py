@@ -75,8 +75,35 @@ class LiveFootprint:
         return forming, closed
 
 
+class Recorder:
+    """Persists the live stream forward in time (Angel offers no historical ticks, so recording IS the history).
+
+    Trades are buffered and written in batches (idempotent on (iid, ts, seq)); closed bars are upserted once.
+    The store is any object with insert_trades / upsert_bar (PgStore in production, a fake in tests).
+    """
+
+    def __init__(self, store: Any, iid: str, timeframe_label: str, batch: int = 200) -> None:
+        self.store, self.iid, self.tf, self.batch = store, iid, timeframe_label, batch
+        self._buf: list[Trade] = []
+
+    def on_trade(self, t: Trade) -> None:
+        self._buf.append(t)
+        if len(self._buf) >= self.batch:
+            self.flush()
+
+    def on_closed(self, bar: FootprintBar) -> None:
+        self.flush()
+        self.store.upsert_bar(self.iid, self.tf, bar, True)
+
+    def flush(self) -> None:
+        if self._buf:
+            self.store.insert_trades(self.iid, self._buf)
+            self._buf = []
+
+
 async def run_ingest(provider: MarketDataProvider, iid: str, tick: float, timeframe: timedelta, hub: Hub,
-                     stop: asyncio.Event | None = None, on_closed: Callable[[FootprintBar], None] | None = None) -> int:
+                     stop: asyncio.Event | None = None, on_closed: Callable[[FootprintBar], None] | None = None,
+                     on_trade: Callable[[Trade], None] | None = None) -> int:
     """Consume the provider stream until it ends or `stop` is set. Returns trades processed."""
     cfg = ImbalanceConfig()
     live = LiveFootprint(tick, timeframe)
@@ -92,6 +119,8 @@ async def run_ingest(provider: MarketDataProvider, iid: str, tick: float, timefr
         except ValueError:
             continue  # late trade for a closed bar: dropped, never rewrites history
         n += 1
+        if on_trade:
+            on_trade(t)
         if closed is not None:
             hub.publish(topic, {"type": "footprint", "closed": True, "bar": _dto(closed, cfg)})
             if on_closed:

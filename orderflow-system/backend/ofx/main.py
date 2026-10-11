@@ -11,7 +11,7 @@ from typing import Annotated
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 
 from ofx.api.hub import Hub
 from ofx.api.service import TF, BadRequest, Service
@@ -34,7 +34,14 @@ def create_app(provider: MarketDataProvider | None = None, api_key: str | None =
         iid = os.environ.get("OFX_LIVE_IID")
         if iid:  # opt-in live ingest: OFX_LIVE_IID=SYN:TEST OFX_LIVE_TICK=0.5 OFX_LIVE_TF=1m
             tf = timedelta(seconds=TF[os.environ.get("OFX_LIVE_TF", "1m")])
-            task = asyncio.create_task(run_ingest(svc.p, iid, float(os.environ.get("OFX_LIVE_TICK", "0.5")), tf, hub))
+            rec = None
+            dsn = os.environ.get("OFX_DATABASE_URL")
+            if dsn:  # record forward: the persisted stream becomes the history
+                from ofx.ingest import Recorder
+                from ofx.storage.pg import PgStore
+                rec = Recorder(PgStore.connect(dsn), iid, os.environ.get("OFX_LIVE_TF", "1m"))
+            task = asyncio.create_task(run_ingest(svc.p, iid, float(os.environ.get("OFX_LIVE_TICK", "0.5")), tf, hub,
+                                                  on_closed=rec.on_closed if rec else None, on_trade=rec.on_trade if rec else None))
         try:
             yield
         finally:
@@ -108,6 +115,23 @@ def create_app(provider: MarketDataProvider | None = None, api_key: str | None =
     async def heatmap(iid: str, tick: Tick, start: Start, end: Start, dt: Annotated[float, Query(gt=0, le=3600)] = 5.0,
                       scale: str = "log", mode: str = "max") -> dict:
         return await svc.heatmap(iid, tick, start, end, dt, scale, mode)
+
+    @app.get("/api/v1/export/footprint", dependencies=[Auth])
+    async def export_footprint(iid: str, tick: Tick, start: Start, end: Start, tf: str = "5m", format: str = "csv"):  # type: ignore[no-untyped-def]
+        if format not in ("csv", "json"):
+            raise BadRequest("format must be csv or json")
+        data = await svc.footprint(iid, tick, start, end, tf)
+        if format == "json":
+            return data
+        import csv
+        import io
+        buf = io.StringIO()
+        w = csv.writer(buf)
+        w.writerow(["ts_open", "row", "price", "bid_vol", "ask_vol", "delta", "bar_quality"])
+        for b in data["bars"]:
+            for r, (bid, ask) in b["rows"].items():
+                w.writerow([b["ts_open"], r, round(int(r) * b["tick"], 10), bid, ask, ask - bid, b["quality"]])
+        return Response(buf.getvalue(), media_type="text/csv", headers={"Content-Disposition": "attachment; filename=footprint.csv"})
 
     @app.websocket("/ws/v1/stream")
     async def stream(ws: WebSocket, topic: str, x_api_key: str = "") -> None:

@@ -88,3 +88,38 @@ def test_lifespan_live_ingest_publishes(monkeypatch):
             time.sleep(0.05)
         assert not cl.queue.empty() and cl.queue.get_nowait()["type"] == "footprint"
         assert c.get("/health").status_code == 200
+
+
+def test_recorder_batches_and_persists_closed_bars():
+    from ofx.ingest import Recorder
+
+    class Fake:
+        def __init__(self):
+            self.trades, self.bars = [], []
+
+        def insert_trades(self, iid, ts):
+            self.trades += list(ts)
+
+        def upsert_bar(self, iid, tf, bar, closed):
+            self.bars.append((iid, tf, closed))
+
+    class P:
+        capabilities = Capabilities("fake", True, True, 0, False, False)
+
+        async def stream_trades(self, iid):
+            for i, sec in enumerate((1, 2, 65, 66)):
+                yield tr(sec, 100, 1, S.ASK, i)
+
+    fake, hub = Fake(), Hub()
+    rec = Recorder(fake, "X", "1m", batch=100)
+    asyncio.run(run_ingest(P(), "X", 1.0, M1, hub, on_closed=rec.on_closed, on_trade=rec.on_trade))
+    rec.flush()
+    assert len(fake.trades) == 4 and fake.bars == [("X", "1m", True)]
+
+
+def test_export_csv_and_json():
+    c = TestClient(create_app(api_key="", rate_per_min=0))
+    r = c.get("/api/v1/export/footprint?iid=SYN:TEST&tick=0.5&start=2026-01-05T04:00:00Z&end=2026-01-05T04:10:00Z&tf=5m")
+    lines = r.text.strip().splitlines()
+    assert r.headers["content-type"].startswith("text/csv") and lines[0].startswith("ts_open,row,price") and len(lines) > 5
+    assert c.get("/api/v1/export/footprint?iid=x&tick=1&start=2026-01-05T04:00:00Z&end=2026-01-05T04:10:00Z&format=xml").status_code == 400

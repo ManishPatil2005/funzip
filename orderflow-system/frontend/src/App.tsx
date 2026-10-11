@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { createChart, type IChartApi, type ISeriesApi } from "lightweight-charts";
 import { FootprintLayer } from "./components/FootprintLayer";
-import { connectWS, fetchFootprint, fetchObservations } from "./lib/net";
+import { CvdPane, HeatmapCanvas } from "./components/Panels";
+import { connectWS, fetchFootprint, fetchHeatmap, fetchObservations } from "./lib/net";
 import type { FootprintBarDTO, ObservationDTO, Quality } from "./lib/types";
 
 const W = 1100, H = 560;
@@ -13,6 +14,7 @@ export default function App() {
   const [bars, setBars] = useState<FootprintBarDTO[]>([]);
   const [obs, setObs] = useState<ObservationDTO[]>([]);
   const [quality, setQuality] = useState<Quality>("estimated");
+  const [heat, setHeat] = useState<number[][]>([]);
   const [err, setErr] = useState("");
 
   useEffect(() => {
@@ -26,6 +28,7 @@ export default function App() {
     Promise.all([fetchFootprint(q), fetchObservations(q)])
       .then(([f, o]) => { setBars(f.bars); setQuality(f.data_quality); setObs(o.observations); })
       .catch((e: Error) => setErr(e.message));
+    fetchHeatmap({ ...q, end: "2026-01-05T04:30:00Z", dt: 10 }).then((h) => setHeat(h.intensity)).catch(() => setHeat([]));
   }, []);
 
   useEffect(() => {
@@ -56,6 +59,10 @@ export default function App() {
         <div ref={host} />
         {chart && series && <FootprintLayer chart={chart} series={series} bars={bars} width={W} height={H} />}
       </div>
+      <h4>Cumulative delta</h4>
+      <CvdPane bars={bars} width={W} height={120} />
+      <h4>Liquidity heatmap <span style={{ fontSize: 12, color: "#9ca3af" }}>(synthetic depth; resting quantity is intent, not execution)</span></h4>
+      <HeatmapCanvas intensity={heat} width={W} height={160} />
       <h4>Observations (descriptive, not instructions)</h4>
       <ul style={{ fontSize: 13, lineHeight: 1.5 }}>
         {obs.slice(0, 12).map((o, i) => (
