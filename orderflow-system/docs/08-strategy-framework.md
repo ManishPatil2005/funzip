@@ -16,3 +16,8 @@ Supporting: `large_trades` (prints ≥ 99th percentile qty); wall/spoof/iceberg 
 **Example wording produced:** "Price made a higher high (… ) while cumulative delta made a lower high (z=−1.4): the push higher had less net buyer-initiated volume behind it." Alternatives listed beside it: passive absorption, classification error, delayed continuation.
 
 **Why pivots-confirmed-only:** a pivot that can appear and later vanish is a repainting signal; we accept lag of `right` bars to keep history truthful (backtest = live).
+
+## Scenario rules (strategies as data) — `ofx/strategy.py`
+A rule is JSON: `{name, description, window_bars (1-100), all_of: [conditions], none_of: [conditions], teaching_note}`; a condition is `{kind (exact or pattern like "liquidity_sweep_*"), min_confidence, quality_at_least}`. Evaluation anchors on each observation matching the first `all_of` condition; every other condition needs a matching observation within ±`window_bars` bars of the anchor and no `none_of` condition may match there. Overlapping matches report only the first. Result quality = weakest of the evidence; confidence = minimum of the evidence, capped by that quality.
+**Why data, not code:** rules are validated (unknown fields, ranges and wording rejected; the language linter runs on name, description and teaching note), evaluated without eval/exec, and safe to accept from users. A match is a *context* ("these observations coincided") with a limitation line; it never states what happens next.
+Endpoints: `POST /api/v1/scenarios?iid&tick&start&end&tf` with the rule as body; `GET /api/v1/scenarios/examples`.

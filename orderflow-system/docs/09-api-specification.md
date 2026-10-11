@@ -12,6 +12,8 @@ Auth: header `x-api-key` when `OFX_API_KEY` is set (constant-time compare); `/he
 | GET `/api/v1/observations` | `iid, tick, start, end, tf` | `{provider, observations:[Observation.to_dict()]}` |
 | GET `/api/v1/heatmap` | `iid, tick, start, end, dt(0–3600 s), scale(linear\|log\|percentile), mode(max\|avg)` | `{provider, depth_levels, t_start, dt_seconds, row_lo, tick, shape:[rows,cols], intensity:[[0..1]], note}`; span ≤ 6 h and ≤ 200k cells, else 400 |
 | GET `/api/v1/export/footprint` | same as footprint + `format=csv\|json` | CSV rows `ts_open,row,price,bid_vol,ask_vol,delta,bar_quality` or the JSON payload |
+| POST `/api/v1/scenarios` | query as observations; JSON rule body (doc 08) | `{rule, observations_considered, matches:[{summary, teaching_note, confidence, data_quality, evidence, limitations}]}`; invalid rule → 400 |
+| GET `/api/v1/scenarios/examples` | — | `{rules:[...]}` |
 | WS `/ws/v1/stream` | `topic`, `x_api_key` (if enabled) | JSON messages; `dropped` counter after backpressure; close 4401 on bad key |
 
 Row → price: `price = row × tick`. Observation fields: `kind, ts_start, ts_end, price_low, price_high, summary, evidence, data_quality, method, confidence, alternative_readings, limitations, teaching_ref`.

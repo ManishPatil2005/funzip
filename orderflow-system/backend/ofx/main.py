@@ -49,7 +49,7 @@ def create_app(provider: MarketDataProvider | None = None, api_key: str | None =
                 task.cancel()
 
     app = FastAPI(title="Order Flow API", version="0.1.0", docs_url="/docs", lifespan=lifespan)
-    app.add_middleware(CORSMiddleware, allow_origins=origins, allow_methods=["GET"], allow_headers=["x-api-key"])
+    app.add_middleware(CORSMiddleware, allow_origins=origins, allow_methods=["GET", "POST"], allow_headers=["x-api-key", "content-type"])
     svc = Service(provider or SyntheticProvider())
     limit = rate_per_min if rate_per_min is not None else int(os.environ.get("OFX_RATE_PER_MIN", "120"))
     trust_proxy = os.environ.get("OFX_TRUST_PROXY") == "1"
@@ -132,6 +132,15 @@ def create_app(provider: MarketDataProvider | None = None, api_key: str | None =
             for r, (bid, ask) in b["rows"].items():
                 w.writerow([b["ts_open"], r, round(int(r) * b["tick"], 10), bid, ask, ask - bid, b["quality"]])
         return Response(buf.getvalue(), media_type="text/csv", headers={"Content-Disposition": "attachment; filename=footprint.csv"})
+
+    @app.post("/api/v1/scenarios", dependencies=[Auth])
+    async def scenarios(iid: str, tick: Tick, start: Start, end: Start, spec: dict, tf: str = "5m") -> dict:
+        return await svc.scenarios(iid, tick, start, end, tf, spec)
+
+    @app.get("/api/v1/scenarios/examples", dependencies=[Auth])
+    async def scenario_examples() -> dict:
+        from ofx.strategy import EXAMPLE_RULES
+        return {"rules": EXAMPLE_RULES}
 
     @app.websocket("/ws/v1/stream")
     async def stream(ws: WebSocket, topic: str, x_api_key: str = "") -> None:

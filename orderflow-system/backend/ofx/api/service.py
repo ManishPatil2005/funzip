@@ -126,3 +126,16 @@ class Service:
                 "t_start": start.isoformat(), "dt_seconds": dt, "row_lo": lo, "tick": tick, "scale": scale, "mode": mode,
                 "shape": [int(inten.shape[0]), int(inten.shape[1])], "intensity": np.round(inten, 3).tolist(),
                 "note": "Resting quantity is intent, not execution; coarse feeds give coarse maps."}
+
+    async def scenarios(self, iid: str, tick: float, start: datetime, end: datetime, tf: str, spec: dict[str, Any]) -> dict[str, Any]:
+        from ofx.strategy import SpecError, evaluate, parse_rule
+        try:
+            rule = parse_rule(spec)
+        except SpecError as e:
+            raise BadRequest(f"invalid rule: {e}") from e
+        check_span(start, end)
+        from ofx.replay import run_detectors
+        bars, obs = run_detectors(await self._trades(iid, start, end), tick, parse_tf(tf))
+        matches = evaluate(rule, obs, parse_tf(tf))
+        return {"provider": self.p.capabilities.name, "rule": rule.name, "observations_considered": len(obs),
+                "matches": [m.to_dict() for m in matches]}

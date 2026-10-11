@@ -21,6 +21,7 @@ Full stack: copy `.env.example` to `.env`, fill it locally, then `docker compose
 | Forward recorder, CSV/JSON export, CVD pane, heatmap canvas, profile layout | built, tested |
 | Replay of detectors over recorded data (`scripts/replay.py`), no-repaint test | built, tested |
 | Market Profile (TPO) panel | built, layout tested |
+| Scenario rules as validated JSON + evaluator + endpoint | built, tested |
 | TimescaleDB hypertables | written, **not executed** |
 | Angel One REST (login/TOTP/candles) | built, tested on **mocked** responses only |
 | Delta Exchange public data (products, candles, recent trades, trade parsing) | built, tested on **mocked** responses only |
