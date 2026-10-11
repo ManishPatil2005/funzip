@@ -20,6 +20,9 @@ Full stack: copy `.env.example` to `.env`, fill it locally, then `docker compose
 | PostgreSQL store + replay | built, tested on real PostgreSQL 16 |
 | TimescaleDB hypertables | written, **not executed** |
 | Angel One REST (login/TOTP/candles) | built, tested on **mocked** responses only |
-| Angel live websocket, Delta adapter | **not built** |
+| Delta Exchange public data (products, candles, recent trades, trade parsing) | built, tested on **mocked** responses only |
+| Angel live websocket; Delta depth stream | **not built** |
+
+Live check (read-only, run on your machine; the build sandbox cannot reach the exchanges): `cd backend && python scripts/smoke_live.py`
 
 Output is observational only: no BUY/SELL/HOLD. Credentials are read from the environment by name; never commit `.env`.

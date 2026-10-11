@@ -45,10 +45,13 @@ class AngelAuthError(RuntimeError):
 
 def credentials_from_env(env: Mapping[str, str] | None = None) -> dict[str, str]:
     env = os.environ if env is None else env
-    missing = [k for k in REQUIRED_ENV if not env.get(k)]
+    merged = dict(env)
+    if not merged.get("ANGEL_PIN") and merged.get("ANGEL_PASSWORD"):  # accepted alias: Angel calls the PIN "password"
+        merged["ANGEL_PIN"] = merged["ANGEL_PASSWORD"]
+    missing = [k for k in REQUIRED_ENV if not merged.get(k)]
     if missing:
         raise AngelAuthError(f"missing environment variables: {', '.join(missing)}")
-    return {k: env[k] for k in REQUIRED_ENV}
+    return {k: merged[k] for k in REQUIRED_ENV}
 
 
 def parse_candles(rows: Sequence[Sequence], ) -> list[Candle]:
