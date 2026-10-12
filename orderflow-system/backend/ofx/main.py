@@ -25,6 +25,15 @@ Tick = Annotated[float, Query(gt=0)]
 SESSIONS = {"NSE": NSE_EQUITY, "MCX": MCX_COMMODITY, "CRYPTO": CRYPTO_UTC_DAY}
 
 
+def _spec(session: str):  # type: ignore[no-untyped-def]
+    """Optional exchange session: aligns time bars to the session open and resets CVD per session."""
+    if not session:
+        return None
+    if session not in SESSIONS:
+        raise BadRequest(f"session must be one of {sorted(SESSIONS)}")
+    return SESSIONS[session]
+
+
 def create_app(provider: MarketDataProvider | None = None, api_key: str | None = None, rate_per_min: int | None = None) -> FastAPI:
     key = api_key if api_key is not None else os.environ.get("OFX_API_KEY", "")
     origins = [o for o in os.environ.get("OFX_CORS_ORIGINS", "").split(",") if o]
@@ -94,8 +103,8 @@ def create_app(provider: MarketDataProvider | None = None, api_key: str | None =
 
     @app.get("/api/v1/footprint", dependencies=[Auth])
     async def footprint(iid: str, tick: Tick, start: Start, end: Start, tf: str = "5m",
-                        ratio: Annotated[float, Query(ge=1.1, le=20)] = 3.0) -> dict:
-        return await svc.footprint(iid, tick, start, end, tf, ratio)
+                        ratio: Annotated[float, Query(ge=1.1, le=20)] = 3.0, session: str = "") -> dict:
+        return await svc.footprint(iid, tick, start, end, tf, ratio, spec=_spec(session))
 
     @app.get("/api/v1/volume-profile", dependencies=[Auth])
     async def volume_profile(iid: str, tick: Tick, start: Start, end: Start) -> dict:
@@ -108,8 +117,8 @@ def create_app(provider: MarketDataProvider | None = None, api_key: str | None =
         return await svc.market_profile(iid, tick, start, end, SESSIONS[session], period)
 
     @app.get("/api/v1/observations", dependencies=[Auth])
-    async def observations(iid: str, tick: Tick, start: Start, end: Start, tf: str = "5m") -> dict:
-        return await svc.observations(iid, tick, start, end, tf)
+    async def observations(iid: str, tick: Tick, start: Start, end: Start, tf: str = "5m", session: str = "") -> dict:
+        return await svc.observations(iid, tick, start, end, tf, spec=_spec(session))
 
     @app.get("/api/v1/heatmap", dependencies=[Auth])
     async def heatmap(iid: str, tick: Tick, start: Start, end: Start, dt: Annotated[float, Query(gt=0, le=3600)] = 5.0,
@@ -144,7 +153,10 @@ def create_app(provider: MarketDataProvider | None = None, api_key: str | None =
 
     @app.websocket("/ws/v1/stream")
     async def stream(ws: WebSocket, topic: str, x_api_key: str = "") -> None:
-        if key and not hmac.compare_digest(x_api_key, key):
+        # Prefer the x-api-key header (not logged in URLs); the query parameter remains for browsers,
+        # which cannot set headers on WebSocket connections. Use TLS and rotate the key if URLs are logged.
+        supplied = ws.headers.get("x-api-key") or x_api_key
+        if key and not hmac.compare_digest(supplied, key):
             await ws.close(code=4401)
             return
         await ws.accept()

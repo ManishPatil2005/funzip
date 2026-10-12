@@ -12,7 +12,14 @@ from ofx.orderflow import detectors
 from ofx.orderflow import heatmap as hm
 from ofx.orderflow import market_profile as mp
 from ofx.orderflow import volume_profile as vp
-from ofx.orderflow.footprint import ImbalanceConfig, apply_session_cvd, build_footprint, find_imbalances, stacked_imbalances
+from ofx.orderflow.footprint import (
+    ImbalanceConfig,
+    apply_session_cvd,
+    build_footprint,
+    find_imbalances,
+    stacked_imbalances,
+    utc_day,
+)
 from ofx.providers.base import MarketDataProvider
 
 TF = {"1m": 60, "5m": 300, "15m": 900, "30m": 1800, "1h": 3600}
@@ -52,6 +59,17 @@ def bar_to_dict(b, cfg: ImbalanceConfig, min_stack: int) -> dict[str, Any]:
     }
 
 
+def _offset(spec: mp.SessionSpec | None, tf: str) -> timedelta:
+    return mp.bar_align_offset(spec, parse_tf(tf)) if spec else timedelta(0)
+
+
+def _skey(spec: mp.SessionSpec | None):  # type: ignore[no-untyped-def]
+    """CVD resets per exchange session when a spec is given, else per UTC day."""
+    if spec is None:
+        return utc_day
+    return lambda ts: spec.session_start(ts)
+
+
 class Service:
     def __init__(self, provider: MarketDataProvider) -> None:
         self.p = provider
@@ -61,9 +79,10 @@ class Service:
             raise BadRequest("provider has no trade data")
         return list(await self.p.trades(iid, start, end))
 
-    async def footprint(self, iid: str, tick: float, start: datetime, end: datetime, tf: str, ratio: float = 3.0, min_stack: int = 3) -> dict[str, Any]:
+    async def footprint(self, iid: str, tick: float, start: datetime, end: datetime, tf: str, ratio: float = 3.0, min_stack: int = 3,
+                        spec: mp.SessionSpec | None = None) -> dict[str, Any]:
         check_span(start, end)
-        bars = apply_session_cvd(build_footprint(await self._trades(iid, start, end), tick, parse_tf(tf)))
+        bars = apply_session_cvd(build_footprint(await self._trades(iid, start, end), tick, parse_tf(tf), _offset(spec, tf)), _skey(spec))
         cfg = ImbalanceConfig(ratio=ratio)
         return {"provider": self.p.capabilities.name, "data_quality": self.p.capabilities.trade_quality.value,
                 "bars": [bar_to_dict(b, cfg, min_stack) for b in bars]}
@@ -77,9 +96,9 @@ class Service:
         return {"approximated": prof.approximated, "tick": tick, "rows": {str(r): v for r, v in sorted(prof.volume.items())},
                 "levels": asdict(k), "nodes": [asdict(n) for n in vp.nodes(prof)]}
 
-    async def observations(self, iid: str, tick: float, start: datetime, end: datetime, tf: str) -> dict[str, Any]:
+    async def observations(self, iid: str, tick: float, start: datetime, end: datetime, tf: str, spec: mp.SessionSpec | None = None) -> dict[str, Any]:
         check_span(start, end)
-        bars = apply_session_cvd(build_footprint(await self._trades(iid, start, end), tick, parse_tf(tf)))
+        bars = apply_session_cvd(build_footprint(await self._trades(iid, start, end), tick, parse_tf(tf), _offset(spec, tf)), _skey(spec))
         obs = [*detectors.delta_divergence(bars), *detectors.absorption(bars), *detectors.exhaustion(bars),
                *detectors.liquidity_sweep(bars, tick), *detectors.imbalance_clusters(bars)]
         t = detectors.cvd_trend(bars)

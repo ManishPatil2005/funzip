@@ -84,3 +84,29 @@ def test_delta_signing_is_deterministic_and_secret_not_in_repr():
     assert h["signature"] == delta.sign("hunter2", "GET", "1700000000", "/v2/products")
     assert "hunter2" not in repr(delta.DeltaProvider("k", "hunter2"))
     assert Capabilities("x", True, False, 0, False, False).trade_quality is DataQuality.ESTIMATED
+
+
+def test_session_alignment_nse_30m_bars_start_at_0915_ist():
+    from datetime import UTC, datetime, timedelta
+
+    from ofx.orderflow.market_profile import MCX_COMMODITY, NSE_EQUITY, bar_align_offset
+    assert bar_align_offset(NSE_EQUITY, timedelta(minutes=30)) == timedelta(minutes=15)  # 03:45 UTC -> :15/:45 boundaries
+    assert bar_align_offset(NSE_EQUITY, timedelta(hours=1)) == timedelta(minutes=45)
+    assert bar_align_offset(MCX_COMMODITY, timedelta(hours=1)) == timedelta(minutes=30)
+    c = client()
+    q = "iid=SYN:TEST&tick=0.5&start=2026-01-05T03:45:00Z&end=2026-01-05T05:45:00Z&tf=30m&session=NSE"
+    opens = [datetime.fromisoformat(b["ts_open"]) for b in c.get(f"/api/v1/footprint?{q}").json()["bars"]]
+    assert opens[0] == datetime(2026, 1, 5, 3, 45, tzinfo=UTC) and all(o.minute in (15, 45) for o in opens)
+    assert c.get(f"/api/v1/footprint?{q.replace('NSE', 'XYZ')}").status_code == 400
+
+
+def test_ws_accepts_header_key_and_rejects_bad():
+    import pytest
+    from starlette.websockets import WebSocketDisconnect
+    app = create_app(api_key="s3cret", rate_per_min=0)
+    c = TestClient(app)
+    with c.websocket_connect("/ws/v1/stream?topic=t", headers={"x-api-key": "s3cret"}) as ws:
+        app.state.hub.publish("t", {"ok": 1})
+        assert ws.receive_json()["ok"] == 1
+    with pytest.raises(WebSocketDisconnect), c.websocket_connect("/ws/v1/stream?topic=t", headers={"x-api-key": "bad"}):
+        pass

@@ -188,3 +188,15 @@ def tpo_levels(p: TPOProfile, pct: float = 0.70) -> TPOLevels:
         single_print_ranges=tuple((row_to_price(first + a, t), row_to_price(first + b, t)) for a, b in runs if b - a + 1 >= 2),
         top_tail_rows=top, bottom_tail_rows=bottom,
     )
+
+
+def bar_align_offset(spec: SessionSpec, timeframe: timedelta, ref: datetime | None = None) -> timedelta:
+    """Offset so time bars start exactly at the session open (e.g. NSE 30-minute bars at 09:15, 09:45 IST).
+
+    Returned value is (open instant in UTC) modulo the timeframe, for use as `align_offset` in build_footprint.
+    """
+    zone = ZoneInfo(spec.tz)
+    day = (ref or datetime(2026, 1, 5, tzinfo=UTC)).astimezone(zone).date()
+    open_utc = datetime.combine(day, spec.open_time, tzinfo=zone).astimezone(UTC)
+    secs = int(timeframe.total_seconds())
+    return timedelta(seconds=int(open_utc.timestamp()) % secs)
