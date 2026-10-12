@@ -3,19 +3,23 @@ import { createChart, type IChartApi, type ISeriesApi } from "lightweight-charts
 import { FootprintLayer } from "./components/FootprintLayer";
 import { CvdPane, HeatmapCanvas } from "./components/Panels";
 import { ProfilePanel } from "./components/ProfilePanel";
-import { connectWS, fetchFootprint, fetchHeatmap, fetchObservations } from "./lib/net";
+import { ScenarioPanel } from "./components/ScenarioPanel";
+import { VolumeProfileLayer, type VPData } from "./components/VolumeProfileLayer";
+import { connectWS, fetchFootprint, fetchHeatmap, fetchObservations, getJSON } from "./lib/net";
 import type { FootprintBarDTO, ObservationDTO, Quality } from "./lib/types";
 
 const W = 1100, H = 560;
 
 export default function App() {
   const host = useRef<HTMLDivElement>(null);
+  const fitted = useRef(false);
   const [chart, setChart] = useState<IChartApi | null>(null);
   const [series, setSeries] = useState<ISeriesApi<"Candlestick"> | null>(null);
   const [bars, setBars] = useState<FootprintBarDTO[]>([]);
   const [obs, setObs] = useState<ObservationDTO[]>([]);
   const [quality, setQuality] = useState<Quality>("estimated");
   const [heat, setHeat] = useState<number[][]>([]);
+  const [vp, setVp] = useState<VPData | null>(null);
   const [err, setErr] = useState("");
 
   useEffect(() => {
@@ -29,6 +33,8 @@ export default function App() {
     Promise.all([fetchFootprint(q), fetchObservations(q)])
       .then(([f, o]) => { setBars(f.bars); setQuality(f.data_quality); setObs(o.observations); })
       .catch((e: Error) => setErr(e.message));
+    getJSON<{ rows?: Record<string, number>; tick?: number; levels?: VPData["levels"] }>("/api/v1/volume-profile", q)
+      .then((v) => setVp(v.rows && v.levels ? { rows: v.rows, tick: v.tick ?? 0.5, levels: v.levels } : null)).catch(() => setVp(null));
     fetchHeatmap({ ...q, end: "2026-01-05T04:30:00Z", dt: 10 }).then((h) => setHeat(h.intensity)).catch(() => setHeat([]));
   }, []);
 
@@ -49,8 +55,10 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    series?.setData(bars.map((b) => ({ time: Math.floor(Date.parse(b.ts_open) / 1000) as never, open: b.open, high: b.high, low: b.low, close: b.close })));
-  }, [series, bars]);
+    if (!series) return;
+    series.setData(bars.map((b) => ({ time: Math.floor(Date.parse(b.ts_open) / 1000) as never, open: b.open, high: b.high, low: b.low, close: b.close })));
+    if (bars.length && !fitted.current) { chart?.timeScale().fitContent(); fitted.current = true; }  // fit once; later live updates keep the user's zoom
+  }, [series, bars, chart]);
 
   return (
     <div style={{ color: "#e5e7eb", fontFamily: "system-ui", padding: 16 }}>
@@ -59,6 +67,7 @@ export default function App() {
       <div style={{ position: "relative", width: W, height: H }}>
         <div ref={host} />
         {chart && series && <FootprintLayer chart={chart} series={series} bars={bars} width={W} height={H} />}
+        {chart && series && <VolumeProfileLayer chart={chart} series={series} data={vp} width={W} height={H} />}
       </div>
       <h4>Cumulative delta</h4>
       <CvdPane bars={bars} width={W} height={120} />
@@ -66,6 +75,8 @@ export default function App() {
       <HeatmapCanvas intensity={heat} width={W} height={160} />
       <h4>Market Profile (TPO)</h4>
       <ProfilePanel iid="SYN:TEST" tick={0.5} start="2026-01-05T00:00:00Z" end="2026-01-05T06:00:00Z" session="CRYPTO" />
+      <h4>Scenario rules <span style={{ fontSize: 12, color: "#9ca3af" }}>(context only, never instructions)</span></h4>
+      <ScenarioPanel query={{ iid: "SYN:TEST", tick: 0.5, start: "2026-01-05T04:00:00Z", end: "2026-01-05T06:00:00Z", tf: "5m" }} />
       <h4>Observations (descriptive, not instructions)</h4>
       <ul style={{ fontSize: 13, lineHeight: 1.5 }}>
         {obs.slice(0, 12).map((o, i) => (

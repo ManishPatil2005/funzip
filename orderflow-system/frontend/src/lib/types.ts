@@ -17,3 +17,8 @@ export interface ObservationDTO {
   confidence: number; price_low: number | null; price_high: number | null;
   alternative_readings: string[]; limitations: string; method: string;
 }
+
+export interface ScenarioMatchDTO {
+  rule: string; ts_start: string; ts_end: string; summary: string; teaching_note: string;
+  confidence: number; data_quality: Quality; limitations: string; evidence: { kind: string; ts_end: string; confidence: number }[];
+}

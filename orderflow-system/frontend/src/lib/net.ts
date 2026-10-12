@@ -1,4 +1,4 @@
-import type { FootprintResponse, ObservationDTO } from "./types";
+import type { FootprintResponse, ObservationDTO, ScenarioMatchDTO } from "./types";
 
 const KEY = import.meta.env.VITE_API_KEY as string | undefined;
 const headers = (): HeadersInit => (KEY ? { "x-api-key": KEY } : {});
@@ -34,3 +34,12 @@ export function connectWS(topic: string, onMessage: (m: unknown) => void, onStat
 }
 
 export const fetchHeatmap = (p: Record<string, string | number>) => getJSON<{ intensity: number[][] }>("/api/v1/heatmap", p);
+
+export async function postScenario(params: Record<string, string | number>, spec: unknown): Promise<{ matches: ScenarioMatchDTO[]; observations_considered: number }> {
+  const qs = new URLSearchParams(Object.entries(params).map(([k, v]) => [k, String(v)]));
+  const r = await fetch(`/api/v1/scenarios?${qs}`, { method: "POST", headers: { "content-type": "application/json", ...(KEY ? { "x-api-key": KEY } : {}) }, body: JSON.stringify(spec) });
+  const j = (await r.json()) as { error?: string; detail?: unknown };
+  if (!r.ok) throw new Error(j.error ?? JSON.stringify(j.detail ?? j).slice(0, 200));
+  return j as never;
+}
+export const fetchExamples = () => getJSON<{ rules: unknown[] }>("/api/v1/scenarios/examples", {});

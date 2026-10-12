@@ -16,7 +16,7 @@ export function ProfilePanel({ iid, tick, start, end, session }: Props) {
   if (err) return <p style={{ color: "#f87171" }}>{err}</p>;
   if (!prof) return <p>No profile for this window.</p>;
   return (
-    <pre style={{ fontFamily: "ui-monospace, monospace", fontSize: 12, lineHeight: 1.25, margin: 0 }}>
+    <pre style={{ fontFamily: "ui-monospace, monospace", fontSize: 12, lineHeight: 1.25, margin: 0, maxHeight: 360, overflowY: "auto" }}>
       {tpoLines(prof, tick).map((l) => `${l.price.toFixed(2).padStart(9)}  ${l.letters.padEnd(14)} ${l.tags.join(" ")}`).join("\n")}
     </pre>
   );

@@ -52,5 +52,5 @@ export function FootprintLayer({ chart, series, bars, width, height }: Props) {
     return () => { cancelAnimationFrame(raf); chart.timeScale().unsubscribeVisibleLogicalRangeChange(schedule); };
   }, [chart, series, bars, width, height]);
 
-  return <canvas ref={ref} style={{ position: "absolute", inset: 0, width, height, pointerEvents: "none" }} />;
+  return <canvas ref={ref} style={{ position: "absolute", inset: 0, width, height, pointerEvents: "none", zIndex: 2 }} />;
 }

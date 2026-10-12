@@ -97,3 +97,19 @@ describe("tpo", () => {
     expect(lines[2]!.letters).toBe("AB");
   });
 });
+
+import { precheckRule } from "../src/lib/panels";
+
+describe("precheckRule", () => {
+  it("accepts a minimal valid rule", () => {
+    const r = precheckRule('{"name":"x","all_of":[{"kind":"exhaustion_*"}],"window_bars":4}');
+    expect(r.ok).toBe(true);
+  });
+  it("explains common mistakes", () => {
+    expect(precheckRule("{oops").ok).toBe(false);
+    expect(precheckRule("[]")).toEqual({ ok: false, error: "A rule must be a JSON object." });
+    expect(precheckRule('{"name":"x","all_of":[]}')).toMatchObject({ ok: false });
+    expect(precheckRule('{"name":"x","all_of":[{"kind":"a"}],"window_bars":500}')).toMatchObject({ ok: false });
+    expect(precheckRule('{"all_of":[{"kind":"a"}]}')).toMatchObject({ ok: false });
+  });
+});

@@ -69,3 +69,15 @@ export function tpoLines(p: TpoProfileDTO, tick: number): TpoLine[] {
     return { price, letters: p.letters[String(r)] ?? "", count: p.counts[String(r)] ?? 0, tags };
   });
 }
+
+/** Client-side pre-check so obvious mistakes show before the round trip. The server is the authority. */
+export function precheckRule(text: string): { ok: true; spec: Record<string, unknown> } | { ok: false; error: string } {
+  let spec: unknown;
+  try { spec = JSON.parse(text); } catch (e) { return { ok: false, error: `Not valid JSON: ${(e as Error).message}` }; }
+  if (typeof spec !== "object" || spec === null || Array.isArray(spec)) return { ok: false, error: "A rule must be a JSON object." };
+  const r = spec as Record<string, unknown>;
+  if (typeof r.name !== "string" || !r.name) return { ok: false, error: "name is required." };
+  if (!Array.isArray(r.all_of) || r.all_of.length === 0) return { ok: false, error: "all_of needs at least one condition." };
+  if (r.window_bars !== undefined && (!Number.isInteger(r.window_bars) || (r.window_bars as number) < 1 || (r.window_bars as number) > 100)) return { ok: false, error: "window_bars must be an integer from 1 to 100." };
+  return { ok: true, spec: r };
+}
