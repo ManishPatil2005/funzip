@@ -37,15 +37,16 @@ class LiveFootprint:
     """Incremental bars. Closed bars are immutable; only the forming bar is recomputed."""
 
     def __init__(self, tick: float, timeframe: timedelta, session_key: Callable[[datetime], Hashable] = utc_day,
-                 max_buffer: int = 200_000) -> None:
+                 max_buffer: int = 200_000, align_offset: timedelta = timedelta(0)) -> None:
         self.tick, self.tf, self.session_key, self.max_buffer = tick, timeframe, session_key, max_buffer
+        self.align = align_offset
         self._buf: list[Trade] = []
         self._start: datetime | None = None
         self._cvd = 0.0
         self._session: Hashable | None = None
 
     def _build(self) -> FootprintBar | None:
-        bars = build_footprint(self._buf, self.tick, self.tf)
+        bars = build_footprint(self._buf, self.tick, self.tf, self.align)
         if not bars:
             return None
         b = bars[0]
@@ -56,7 +57,7 @@ class LiveFootprint:
 
     def on_trade(self, t: Trade) -> tuple[FootprintBar, FootprintBar | None]:
         """Returns (forming_bar, just_closed_bar_or_None)."""
-        start = build_footprint([t], self.tick, self.tf)[0].ts_open
+        start = build_footprint([t], self.tick, self.tf, self.align)[0].ts_open
         closed = None
         if self._start is not None and start > self._start:
             closed = self._build()
@@ -103,10 +104,14 @@ class Recorder:
 
 async def run_ingest(provider: MarketDataProvider, iid: str, tick: float, timeframe: timedelta, hub: Hub,
                      stop: asyncio.Event | None = None, on_closed: Callable[[FootprintBar], None] | None = None,
-                     on_trade: Callable[[Trade], None] | None = None) -> int:
+                     on_trade: Callable[[Trade], None] | None = None, spec: Any = None) -> int:
     """Consume the provider stream until it ends or `stop` is set. Returns trades processed."""
     cfg = ImbalanceConfig()
-    live = LiveFootprint(tick, timeframe)
+    if spec is not None:  # exchange session: bars start at the open, CVD resets per session
+        from ofx.orderflow.market_profile import bar_align_offset
+        live = LiveFootprint(tick, timeframe, lambda ts: spec.session_start(ts), align_offset=bar_align_offset(spec, timeframe))
+    else:
+        live = LiveFootprint(tick, timeframe)
     rule = None if provider.capabilities.aggressor_flag else StreamingTickRule()
     topic, n = f"{iid}:footprint", 0
     async for t in provider.stream_trades(iid):

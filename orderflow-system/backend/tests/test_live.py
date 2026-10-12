@@ -123,3 +123,15 @@ def test_export_csv_and_json():
     lines = r.text.strip().splitlines()
     assert r.headers["content-type"].startswith("text/csv") and lines[0].startswith("ts_open,row,price") and len(lines) > 5
     assert c.get("/api/v1/export/footprint?iid=x&tick=1&start=2026-01-05T04:00:00Z&end=2026-01-05T04:10:00Z&format=xml").status_code == 400
+
+
+def test_live_footprint_session_alignment_and_cvd_reset():
+    from datetime import timedelta as td
+
+    from ofx.orderflow.market_profile import NSE_EQUITY, bar_align_offset
+    tf = td(minutes=30)
+    lf = LiveFootprint(1.0, tf, lambda ts: NSE_EQUITY.session_start(ts), align_offset=bar_align_offset(NSE_EQUITY, tf))
+    f, _ = lf.on_trade(tr(0, 100, 5, S.ASK, 1))  # T0 = 04:00 UTC = 09:30 IST
+    assert (f.ts_open.hour, f.ts_open.minute) == (3, 45)  # bar opened at 09:15 IST, not at 09:30
+    f2, closed = lf.on_trade(tr(3600 * 24, 100, 2, S.ASK, 2))  # next day: new session
+    assert closed is not None and f2.cvd_open == 0  # CVD reset at the session change
