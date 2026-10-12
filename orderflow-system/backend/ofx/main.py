@@ -15,6 +15,7 @@ from fastapi.responses import JSONResponse, Response
 
 from ofx.api.hub import Hub
 from ofx.api.service import TF, BadRequest, Service
+from ofx.export import COLUMNS, ParquetUnavailable, footprint_rows, to_parquet
 from ofx.ingest import run_ingest
 from ofx.orderflow.market_profile import CRYPTO_UTC_DAY, MCX_COMMODITY, NSE_EQUITY
 from ofx.providers.base import MarketDataProvider
@@ -104,8 +105,9 @@ def create_app(provider: MarketDataProvider | None = None, api_key: str | None =
 
     @app.get("/api/v1/footprint", dependencies=[Auth])
     async def footprint(iid: str, tick: Tick, start: Start, end: Start, tf: str = "5m",
-                        ratio: Annotated[float, Query(ge=1.1, le=20)] = 3.0, session: str = "") -> dict:
-        return await svc.footprint(iid, tick, start, end, tf, ratio, spec=_spec(session))
+                        ratio: Annotated[float, Query(ge=1.1, le=20)] = 3.0, session: str = "",
+                        limit: Annotated[int | None, Query(ge=1, le=2000)] = None, cursor: str | None = None) -> dict:
+        return await svc.footprint(iid, tick, start, end, tf, ratio, spec=_spec(session), limit=limit, cursor=cursor)
 
     @app.get("/api/v1/volume-profile", dependencies=[Auth])
     async def volume_profile(iid: str, tick: Tick, start: Start, end: Start) -> dict:
@@ -118,8 +120,9 @@ def create_app(provider: MarketDataProvider | None = None, api_key: str | None =
         return await svc.market_profile(iid, tick, start, end, SESSIONS[session], period)
 
     @app.get("/api/v1/observations", dependencies=[Auth])
-    async def observations(iid: str, tick: Tick, start: Start, end: Start, tf: str = "5m", session: str = "") -> dict:
-        return await svc.observations(iid, tick, start, end, tf, spec=_spec(session))
+    async def observations(iid: str, tick: Tick, start: Start, end: Start, tf: str = "5m", session: str = "",
+                           limit: Annotated[int | None, Query(ge=1, le=2000)] = None, cursor: str | None = None) -> dict:
+        return await svc.observations(iid, tick, start, end, tf, spec=_spec(session), limit=limit, cursor=cursor)
 
     @app.get("/api/v1/heatmap", dependencies=[Auth])
     async def heatmap(iid: str, tick: Tick, start: Start, end: Start, dt: Annotated[float, Query(gt=0, le=3600)] = 5.0,
@@ -127,20 +130,25 @@ def create_app(provider: MarketDataProvider | None = None, api_key: str | None =
         return await svc.heatmap(iid, tick, start, end, dt, scale, mode)
 
     @app.get("/api/v1/export/footprint", dependencies=[Auth])
-    async def export_footprint(iid: str, tick: Tick, start: Start, end: Start, tf: str = "5m", format: str = "csv"):  # type: ignore[no-untyped-def]
-        if format not in ("csv", "json"):
-            raise BadRequest("format must be csv or json")
-        data = await svc.footprint(iid, tick, start, end, tf)
+    async def export_footprint(iid: str, tick: Tick, start: Start, end: Start, tf: str = "5m", format: str = "csv", session: str = ""):  # type: ignore[no-untyped-def]
+        if format not in ("csv", "json", "parquet"):
+            raise BadRequest("format must be csv, json or parquet")
+        data = await svc.footprint(iid, tick, start, end, tf, spec=_spec(session))
         if format == "json":
             return data
+        rows = footprint_rows(data)
+        if format == "parquet":
+            try:
+                body = to_parquet(rows)
+            except ParquetUnavailable as e:
+                return JSONResponse({"error": str(e)}, status_code=501)
+            return Response(body, media_type="application/vnd.apache.parquet", headers={"Content-Disposition": "attachment; filename=footprint.parquet"})
         import csv
         import io
         buf = io.StringIO()
         w = csv.writer(buf)
-        w.writerow(["ts_open", "row", "price", "bid_vol", "ask_vol", "delta", "bar_quality"])
-        for b in data["bars"]:
-            for r, (bid, ask) in b["rows"].items():
-                w.writerow([b["ts_open"], r, round(int(r) * b["tick"], 10), bid, ask, ask - bid, b["quality"]])
+        w.writerow(COLUMNS)
+        w.writerows(rows)
         return Response(buf.getvalue(), media_type="text/csv", headers={"Content-Disposition": "attachment; filename=footprint.csv"})
 
     @app.post("/api/v1/scenarios", dependencies=[Auth])

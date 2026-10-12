@@ -18,7 +18,7 @@ Full stack: copy `.env.example` to `.env`, fill it locally, then `docker compose
 | REST API, WebSocket hub, rate limit, API key | built, tested |
 | Live ingest (provider → bars → WebSocket) | built, tested with fake/synthetic feeds |
 | PostgreSQL store + replay | built, tested on real PostgreSQL 16 |
-| Forward recorder, CSV/JSON export, CVD pane, heatmap canvas, profile layout | built, tested |
+| Forward recorder, CSV/JSON/Parquet export, keyset pagination, CVD pane, heatmap canvas, profile layout | built, tested |
 | Replay of detectors over recorded data (`scripts/replay.py`), no-repaint test | built, tested |
 | Market Profile (TPO) panel | built, layout tested |
 | Scenario rules as validated JSON + evaluator + endpoint | built, tested |

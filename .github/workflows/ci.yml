@@ -7,7 +7,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with: { python-version: "3.13" }
-      - run: pip install -r orderflow-system/backend/requirements.txt pytest httpx ruff mypy pglast "psycopg[binary]"
+      - run: pip install -r orderflow-system/backend/requirements.txt pytest httpx ruff mypy pglast "psycopg[binary]" pyarrow
       - run: cd orderflow-system/backend && ruff check . && mypy ofx && python -m pytest -q
   frontend:
     runs-on: ubuntu-latest

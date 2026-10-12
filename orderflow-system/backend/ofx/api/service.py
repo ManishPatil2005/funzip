@@ -45,6 +45,33 @@ def check_span(start: datetime, end: datetime) -> None:
         raise BadRequest(f"span exceeds {MAX_SPAN}")
 
 
+MAX_PAGE = 2000
+
+
+def paginate(items: list[Any], key: str, limit: int | None, cursor: str | None) -> tuple[list[Any], str | None]:
+    """Keyset pagination over a time-ordered list of dicts.
+
+    The cursor is the `key` value (an ISO timestamp) of the first item of the next page, so pages stay stable when new
+    data is appended and no offset arithmetic is involved. Compared as parsed datetimes, never as strings, because ISO
+    strings with different UTC offsets do not sort lexically. limit=None returns everything (backwards compatible).
+    """
+    if limit is None and cursor is None:
+        return items, None
+    if limit is not None and not 1 <= limit <= MAX_PAGE:
+        raise BadRequest(f"limit must be between 1 and {MAX_PAGE}")
+    if cursor:
+        try:
+            c = datetime.fromisoformat(cursor)
+        except ValueError as e:
+            raise BadRequest("cursor is not a valid value returned by this API") from e
+        if c.tzinfo is None:
+            raise BadRequest("cursor is not a valid value returned by this API")
+        items = [i for i in items if datetime.fromisoformat(i[key]) >= c]
+    if limit is None or len(items) <= limit:
+        return items, None
+    return items[:limit], items[limit][key]
+
+
 def bar_to_dict(b, cfg: ImbalanceConfig, min_stack: int) -> dict[str, Any]:
     imb = find_imbalances(b, cfg)
     return {
@@ -80,12 +107,13 @@ class Service:
         return list(await self.p.trades(iid, start, end))
 
     async def footprint(self, iid: str, tick: float, start: datetime, end: datetime, tf: str, ratio: float = 3.0, min_stack: int = 3,
-                        spec: mp.SessionSpec | None = None) -> dict[str, Any]:
+                        spec: mp.SessionSpec | None = None, limit: int | None = None, cursor: str | None = None) -> dict[str, Any]:
         check_span(start, end)
         bars = apply_session_cvd(build_footprint(await self._trades(iid, start, end), tick, parse_tf(tf), _offset(spec, tf)), _skey(spec))
         cfg = ImbalanceConfig(ratio=ratio)
+        page, nxt = paginate([bar_to_dict(b, cfg, min_stack) for b in bars], "ts_open", limit, cursor)
         return {"provider": self.p.capabilities.name, "data_quality": self.p.capabilities.trade_quality.value,
-                "bars": [bar_to_dict(b, cfg, min_stack) for b in bars]}
+                "bars": page, "total_bars": len(bars), "next_cursor": nxt}
 
     async def volume_profile(self, iid: str, tick: float, start: datetime, end: datetime) -> dict[str, Any]:
         check_span(start, end)
@@ -96,7 +124,8 @@ class Service:
         return {"approximated": prof.approximated, "tick": tick, "rows": {str(r): v for r, v in sorted(prof.volume.items())},
                 "levels": asdict(k), "nodes": [asdict(n) for n in vp.nodes(prof)]}
 
-    async def observations(self, iid: str, tick: float, start: datetime, end: datetime, tf: str, spec: mp.SessionSpec | None = None) -> dict[str, Any]:
+    async def observations(self, iid: str, tick: float, start: datetime, end: datetime, tf: str, spec: mp.SessionSpec | None = None,
+                           limit: int | None = None, cursor: str | None = None) -> dict[str, Any]:
         check_span(start, end)
         bars = apply_session_cvd(build_footprint(await self._trades(iid, start, end), tick, parse_tf(tf), _offset(spec, tf)), _skey(spec))
         obs = [*detectors.delta_divergence(bars), *detectors.absorption(bars), *detectors.exhaustion(bars),
@@ -104,7 +133,9 @@ class Service:
         t = detectors.cvd_trend(bars)
         if t:
             obs.append(t)
-        return {"provider": self.p.capabilities.name, "observations": [o.to_dict() for o in sorted(obs, key=lambda o: o.ts_start)]}
+        rows = [o.to_dict() for o in sorted(obs, key=lambda o: o.ts_start)]
+        page, nxt = paginate(rows, "ts_start", limit, cursor)
+        return {"provider": self.p.capabilities.name, "observations": page, "total": len(rows), "next_cursor": nxt}
 
     async def market_profile(self, iid: str, tick: float, start: datetime, end: datetime, spec: mp.SessionSpec, period: int = 30) -> dict[str, Any]:
         check_span(start, end)

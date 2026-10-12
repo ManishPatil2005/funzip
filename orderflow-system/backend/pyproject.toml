@@ -6,6 +6,7 @@ dependencies = ["fastapi>=0.110", "uvicorn[standard]>=0.29", "numpy>=1.26", "pyd
 [project.optional-dependencies]
 dev = ["pytest", "httpx", "ruff", "mypy", "pglast"]
 redis = ["redis>=5"]
+parquet = ["pyarrow>=15"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 [tool.ruff]
