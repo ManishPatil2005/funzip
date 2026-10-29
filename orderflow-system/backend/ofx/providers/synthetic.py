@@ -11,6 +11,7 @@ from collections.abc import AsyncIterator, Sequence
 from datetime import UTC, datetime, timedelta
 
 from ofx.domain import AggressorSide, Candle, DepthLevel, DepthSnapshot, Instrument, Quote, Trade
+from ofx.providers import demo_market as dm
 from ofx.providers.base import Capabilities, ProviderUnsupported
 
 INSTRUMENT = Instrument("SYN:TEST", "TEST", "SYN", tick_size=0.5, lot_size=1.0, tz="UTC")
@@ -47,16 +48,19 @@ class SyntheticProvider:
         self._delay = tick_delay
 
     async def instruments(self) -> Sequence[Instrument]:
-        return [INSTRUMENT]
+        return [INSTRUMENT, *(s.instrument for s in dm.SPECS.values())]
 
     async def trades(self, iid: str, start: datetime, end: datetime) -> Sequence[Trade]:
+        if dm.is_demo(iid):
+            return dm.trades_between(iid, start, end)
         return generate_trades(start, int((end - start).total_seconds()))
 
     async def candles(self, iid: str, start: datetime, end: datetime, timeframe: str) -> Sequence[Candle]:
-        step = {"1m": 60, "5m": 300}.get(timeframe)
+        step = {"1m": 60, "5m": 300, "15m": 900, "30m": 1800, "1h": 3600}.get(timeframe if dm.is_demo(iid) else timeframe) if dm.is_demo(iid) \
+            else {"1m": 60, "5m": 300}.get(timeframe)
         if step is None:
             raise ProviderUnsupported(f"timeframe {timeframe}")
-        trades = generate_trades(start, int((end - start).total_seconds()))
+        trades = dm.trades_between(iid, start, end) if dm.is_demo(iid) else generate_trades(start, int((end - start).total_seconds()))
         buckets: dict[int, list[Trade]] = {}
         for t in trades:
             buckets.setdefault(int(t.ts.timestamp()) // step, []).append(t)
@@ -65,6 +69,8 @@ class SyntheticProvider:
 
     async def depth_history(self, iid: str, start: datetime, end: datetime) -> list[DepthSnapshot]:
         """One snapshot per second around a slowly drifting mid, with an occasional wall."""
+        if dm.is_demo(iid):
+            return dm.depth_between(iid, start, end)
         rng = random.Random(11)
         mid, out = 100.0, []
         for k in range(int((end - start).total_seconds())):

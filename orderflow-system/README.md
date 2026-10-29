@@ -1,6 +1,6 @@
 # Order Flow Charting System
 
-Backend (Python 3.13, FastAPI) · Frontend (React + TypeScript + Lightweight Charts) · PostgreSQL/TimescaleDB schema · 10 design documents in `docs/`.
+Backend (Python 3.13, FastAPI) · Frontend (React + TypeScript, custom canvas chart engine) · PostgreSQL/TimescaleDB schema · 10 design documents in `docs/`.
 
 ## Run (no credentials needed; synthetic data)
 ```
@@ -8,6 +8,7 @@ cd backend && pip install -r requirements.txt pytest ruff mypy pglast && python 
 uvicorn ofx.main:app --reload
 cd frontend && npm install && npm test && npm run build && npm run dev
 ```
+UI smoke test (needs both servers running): `pip install playwright && python scripts/ui_smoke.py`.
 Database tests: `OFX_TEST_DSN="host=... dbname=..." python -m pytest tests/test_storage.py`.
 Full stack: copy `.env.example` to `.env`, fill it locally, then `docker compose up --build`.
 
@@ -22,7 +23,8 @@ Full stack: copy `.env.example` to `.env`, fill it locally, then `docker compose
 | Replay of detectors over recorded data (`scripts/replay.py`), no-repaint test | built, tested |
 | Market Profile (TPO) panel | built, layout tested |
 | Scenario rules as validated JSON + evaluator + endpoint | built, tested |
-| Volume profile layer, scenario rule editor; UI rendered and inspected in Chromium against the synthetic feed | built, layout logic tested |
+| Chart UI (custom canvas engine): numeric bid x ask footprint with auto row size, imbalance and POC marking, bar statistics table, delta bars, buy/sell volume profile, session VWAP, candles + session volume profiles, TPO letters with value area / IB / single prints, crosshair + cell tooltip, pan/zoom, 1/2/4-chart layouts | built; pure maths unit-tested (34 tests); rendered and inspected in Chromium; `scripts/ui_smoke.py` guards against blank charts |
+| Demo market (`SYN:NIFTY`, `SYN:CRUDE`): NSE/MCX-shaped sessions, realistic price/tick/volume scale, deterministic per day | built, tested. **Generated, not market data**; the UI shows a DEMO DATA badge |
 | TimescaleDB hypertables | written, **not executed** |
 | Angel One REST (login/TOTP/candles) | built, tested on **mocked** responses only |
 | Delta Exchange public data (products, candles, recent trades, trade parsing) | built, tested on **mocked** responses only |

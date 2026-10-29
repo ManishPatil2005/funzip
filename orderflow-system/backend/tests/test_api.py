@@ -28,7 +28,7 @@ def test_validation_errors():
     c = client()
     assert c.get(f"/api/v1/footprint?{Q}&tf=7m").status_code == 400
     assert c.get("/api/v1/footprint?iid=x&tick=0&start=2026-01-05T04:00:00Z&end=2026-01-05T05:00:00Z").status_code == 422
-    assert c.get("/api/v1/footprint?iid=x&tick=1&start=2026-01-05T04:00:00Z&end=2026-01-09T05:00:00Z").status_code == 400
+    assert c.get("/api/v1/footprint?iid=x&tick=1&start=2026-01-05T04:00:00Z&end=2026-01-13T05:00:00Z").status_code == 400
     assert c.get("/api/v1/footprint?iid=x&tick=1&start=2026-01-05T04:00:00&end=2026-01-05T05:00:00").status_code == 400  # naive time
 
 

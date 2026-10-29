@@ -6,7 +6,7 @@ import type { FootprintBarDTO } from "../src/lib/types";
 
 const bar: FootprintBarDTO = {
   ts_open: "2026-01-05T04:00:00Z", ts_close: "2026-01-05T04:05:00Z", tick: 1, open: 100, high: 102, low: 100, close: 101,
-  volume: 90, delta: 10, cvd_open: 0, cvd_close: 10, poc_row: 101, unknown_share: 0, quality: "exact",
+  volume: 90, delta: 10, delta_min: -5, delta_max: 15, cvd_open: 0, cvd_close: 10, bid_volume: 35, ask_volume: 55, vwap: 101, poc_row: 101, unknown_share: 0, quality: "exact",
   rows: { "100": [10, 5], "101": [20, 30], "102": [5, 20] },
   imbalances: [{ row: 102, side: "ask" }], stacked: [{ side: "ask", low_row: 101, high_row: 102 }],
 };

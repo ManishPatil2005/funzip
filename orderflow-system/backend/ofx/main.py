@@ -13,12 +13,14 @@ from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request, Web
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response
 
+from ofx.api.cache import MemoryCache
 from ofx.api.hub import Hub
 from ofx.api.service import TF, BadRequest, Service
 from ofx.export import COLUMNS, ParquetUnavailable, footprint_rows, to_parquet
 from ofx.ingest import run_ingest
 from ofx.orderflow.market_profile import CRYPTO_UTC_DAY, MCX_COMMODITY, NSE_EQUITY
 from ofx.providers.base import MarketDataProvider
+from ofx.providers.demo_market import ROW_HINT
 from ofx.providers.synthetic import SyntheticProvider
 
 Start = Annotated[datetime, Query()]
@@ -61,7 +63,8 @@ def create_app(provider: MarketDataProvider | None = None, api_key: str | None =
 
     app = FastAPI(title="Order Flow API", version="0.1.0", docs_url="/docs", lifespan=lifespan)
     app.add_middleware(CORSMiddleware, allow_origins=origins, allow_methods=["GET", "POST"], allow_headers=["x-api-key", "content-type"])
-    svc = Service(provider or SyntheticProvider())
+    ttl = float(os.environ.get("OFX_CACHE_TTL", "120"))  # seconds; 0 disables. Only fully closed windows are cached.
+    svc = Service(provider or SyntheticProvider(), MemoryCache(256), ttl)
     limit = rate_per_min if rate_per_min is not None else int(os.environ.get("OFX_RATE_PER_MIN", "120"))
     trust_proxy = os.environ.get("OFX_TRUST_PROXY") == "1"
     buckets: dict[str, tuple[float, float]] = {}  # ip -> (tokens, last_ts)
@@ -103,6 +106,13 @@ def create_app(provider: MarketDataProvider | None = None, api_key: str | None =
         c = svc.p.capabilities
         return {**c.__dict__, "trade_quality": c.trade_quality.value}
 
+    @app.get("/api/v1/instruments", dependencies=[Auth])
+    async def instruments() -> dict:
+        items = await svc.p.instruments()
+        return {"instruments": [{"iid": i.iid, "symbol": i.symbol, "exchange": i.exchange, "tick_size": i.tick_size, "lot_size": i.lot_size,
+                                 "tz": i.tz, "session": i.exchange if i.exchange in SESSIONS else "",
+                                 "row_hint": ROW_HINT.get(i.iid, i.tick_size * 10)} for i in items]}
+
     @app.get("/api/v1/footprint", dependencies=[Auth])
     async def footprint(iid: str, tick: Tick, start: Start, end: Start, tf: str = "5m",
                         ratio: Annotated[float, Query(ge=1.1, le=20)] = 3.0, session: str = "",
@@ -112,6 +122,12 @@ def create_app(provider: MarketDataProvider | None = None, api_key: str | None =
     @app.get("/api/v1/volume-profile", dependencies=[Auth])
     async def volume_profile(iid: str, tick: Tick, start: Start, end: Start) -> dict:
         return await svc.volume_profile(iid, tick, start, end)
+
+    @app.get("/api/v1/session-profiles", dependencies=[Auth])
+    async def session_profiles(iid: str, tick: Tick, start: Start, end: Start, session: str = "NSE") -> dict:
+        if session not in SESSIONS:
+            raise BadRequest(f"session must be one of {sorted(SESSIONS)}")
+        return await svc.session_profiles(iid, tick, start, end, SESSIONS[session])
 
     @app.get("/api/v1/market-profile", dependencies=[Auth])
     async def market_profile(iid: str, tick: Tick, start: Start, end: Start, session: str = "NSE", period: Annotated[int, Query(ge=5, le=60)] = 30) -> dict:

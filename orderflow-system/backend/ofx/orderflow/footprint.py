@@ -47,6 +47,7 @@ class FootprintBar:
     delta_max: float = 0.0
     cvd_open: float = 0.0
     cvd_close: float = 0.0
+    turnover: float = 0.0  # sum(price * qty), for VWAP
 
     @property
     def volume(self) -> float:
@@ -149,6 +150,7 @@ def build_footprint(
         if t.side is AggressorSide.UNKNOWN or t.side_method != "exchange":
             exact_flags[start] = False
         bar.n_trades += 1
+        bar.turnover += t.price * t.qty
         bar.high_px, bar.low_px, bar.close_px = max(bar.high_px, t.price), min(bar.low_px, t.price), t.price
         bar.delta_min = min(bar.delta_min, running[start])
         bar.delta_max = max(bar.delta_max, running[start])

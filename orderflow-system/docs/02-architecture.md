@@ -24,7 +24,8 @@ backend/ofx/api/               service, hub (WS fan-out), cache (memory/redis)
 backend/ofx/main.py            FastAPI app factory
 backend/migrations/0001_schema.sql
 frontend/src/lib/              color, layout, net (pure, unit-tested)
-frontend/src/components/       FootprintLayer (canvas overlay)
+frontend/src/render/           canvas engine: footprint, candles, profiles, TPO, panes, scene
+frontend/src/components/       Workspace (pane: toolbar + canvas + interaction), Insights
 ```
 
 ## 3. Technical decisions and why
@@ -39,7 +40,7 @@ frontend/src/components/       FootprintLayer (canvas overlay)
 | Causal level building for sweeps | Later pivots cannot change an earlier level (a bug found and fixed in tests) | — |
 | TimescaleDB over plain Postgres | Hypertables, compression, retention policies for tick data | Extra extension to operate |
 | Redis for hot fan-out/cache | Cheap pub/sub and TTL | Another service; memory cache fallback exists |
-| Canvas overlay on Lightweight Charts | Library has no footprint series; overlay synced via `timeToCoordinate` / `priceToCoordinate` | Must redraw on range change |
+| Custom canvas chart engine (replaces the earlier Lightweight Charts overlay) | The library has no footprint series and keeping an overlay in sync cost us readability and layout control (row height, bar-slot width, panes sharing one x-axis, stats table aligned under bars). One engine owns every coordinate | We maintain pan/zoom, axes and crosshair ourselves (pure functions in `lib/viewport.ts`, unit-tested) |
 | Bounded WS queues, drop-oldest | Slow client cannot stall others | Client sees gaps (counter sent) |
 | Optional API key, constant-time compare | Simple secure default for single-tenant | Not multi-user auth (future) |
 

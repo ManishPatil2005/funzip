@@ -1,4 +1,4 @@
-import type { FootprintResponse, ObservationDTO, ScenarioMatchDTO } from "./types";
+import type { FootprintResponse, InstrumentDTO, ObservationDTO, ScenarioMatchDTO, SessionProfileDTO, TPODTO } from "./types";
 
 const KEY = import.meta.env.VITE_API_KEY as string | undefined;
 const headers = (): HeadersInit => (KEY ? { "x-api-key": KEY } : {});
@@ -43,3 +43,7 @@ export async function postScenario(params: Record<string, string | number>, spec
   return j as never;
 }
 export const fetchExamples = () => getJSON<{ rules: unknown[] }>("/api/v1/scenarios/examples", {});
+
+export const fetchInstruments = () => getJSON<{ instruments: InstrumentDTO[] }>("/api/v1/instruments", {});
+export const fetchSessionProfiles = (p: Record<string, string | number>) => getJSON<{ sessions: SessionProfileDTO[] }>("/api/v1/session-profiles", p);
+export const fetchTPO = (p: Record<string, string | number>) => getJSON<{ profiles: TPODTO[] }>("/api/v1/market-profile", p);

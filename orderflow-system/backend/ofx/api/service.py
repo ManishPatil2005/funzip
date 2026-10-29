@@ -7,6 +7,7 @@ from typing import Any
 
 import numpy as np
 
+from ofx.api.cache import Cache
 from ofx.domain import Trade, price_to_row
 from ofx.orderflow import detectors
 from ofx.orderflow import heatmap as hm
@@ -23,7 +24,7 @@ from ofx.orderflow.footprint import (
 from ofx.providers.base import MarketDataProvider
 
 TF = {"1m": 60, "5m": 300, "15m": 900, "30m": 1800, "1h": 3600}
-MAX_SPAN = timedelta(days=2)
+MAX_SPAN = timedelta(days=7)
 
 
 class BadRequest(ValueError):
@@ -46,6 +47,7 @@ def check_span(start: datetime, end: datetime) -> None:
 
 
 MAX_PAGE = 2000
+MAX_ROWS = 150_000  # bar x price-row cells per response; keeps payloads and canvas work bounded
 
 
 def paginate(items: list[Any], key: str, limit: int | None, cursor: str | None) -> tuple[list[Any], str | None]:
@@ -78,7 +80,7 @@ def bar_to_dict(b, cfg: ImbalanceConfig, min_stack: int) -> dict[str, Any]:
         "ts_open": b.ts_open.isoformat(), "ts_close": b.ts_close.isoformat(), "tick": b.tick,
         "open": b.open_px, "high": b.high_px, "low": b.low_px, "close": b.close_px,
         "volume": b.volume, "delta": b.delta, "delta_min": b.delta_min, "delta_max": b.delta_max,
-        "cvd_open": b.cvd_open, "cvd_close": b.cvd_close, "poc_row": b.poc_row, "unknown_share": round(b.unknown_share, 4),
+        "cvd_open": b.cvd_open, "cvd_close": b.cvd_close, "bid_volume": b.bid_volume, "ask_volume": b.ask_volume, "poc_row": b.poc_row, "unknown_share": round(b.unknown_share, 4),
         "quality": b.quality.value,
         "rows": {str(r): [c.bid_vol, c.ask_vol] for r, c in sorted(b.rows.items())},
         "imbalances": [{"row": i.row, "side": i.side} for i in imb],
@@ -98,8 +100,21 @@ def _skey(spec: mp.SessionSpec | None):  # type: ignore[no-untyped-def]
 
 
 class Service:
-    def __init__(self, provider: MarketDataProvider) -> None:
+    def __init__(self, provider: MarketDataProvider, cache: Cache | None = None, cache_ttl: float = 120.0) -> None:
         self.p = provider
+        self._cache, self._ttl = cache, cache_ttl
+
+    async def _memo(self, name: str, end: datetime, parts: tuple[Any, ...], fn: Any) -> dict[str, Any]:
+        """Cache results for windows that have fully closed; a window that is still forming is never cached."""
+        if self._cache is None or self._ttl <= 0 or end > datetime.now(end.tzinfo) - timedelta(seconds=5):
+            return await fn()  # type: ignore[no-any-return]
+        key = f"{name}|{self.p.capabilities.name}|" + "|".join(map(str, parts))
+        hit = self._cache.get(key)
+        if hit is not None:
+            return hit  # type: ignore[no-any-return]
+        out = await fn()
+        self._cache.set(key, out, self._ttl)
+        return out  # type: ignore[no-any-return]
 
     async def _trades(self, iid: str, start: datetime, end: datetime) -> list[Trade]:
         if not self.p.capabilities.trades:
@@ -109,9 +124,23 @@ class Service:
     async def footprint(self, iid: str, tick: float, start: datetime, end: datetime, tf: str, ratio: float = 3.0, min_stack: int = 3,
                         spec: mp.SessionSpec | None = None, limit: int | None = None, cursor: str | None = None) -> dict[str, Any]:
         check_span(start, end)
+        return await self._memo("fp", end, (iid, tick, start, end, tf, ratio, min_stack, spec.name if spec else "", limit, cursor),
+                                lambda: self._footprint(iid, tick, start, end, tf, ratio, min_stack, spec, limit, cursor))
+
+    async def _footprint(self, iid: str, tick: float, start: datetime, end: datetime, tf: str, ratio: float, min_stack: int,
+                         spec: mp.SessionSpec | None, limit: int | None, cursor: str | None) -> dict[str, Any]:
         bars = apply_session_cvd(build_footprint(await self._trades(iid, start, end), tick, parse_tf(tf), _offset(spec, tf)), _skey(spec))
         cfg = ImbalanceConfig(ratio=ratio)
-        page, nxt = paginate([bar_to_dict(b, cfg, min_stack) for b in bars], "ts_open", limit, cursor)
+        if sum(len(b.rows) for b in bars) > MAX_ROWS:
+            raise BadRequest(f"too many price rows ({sum(len(b.rows) for b in bars)}); use a larger row size or a shorter window")
+        dicts = [bar_to_dict(b, cfg, min_stack) for b in bars]
+        key, cur, pv, vol = _skey(spec), None, 0.0, 0.0
+        for b, d in zip(bars, dicts, strict=True):  # session VWAP at each bar's close (resets with the session, like CVD)
+            if key(b.ts_open) != cur:
+                cur, pv, vol = key(b.ts_open), 0.0, 0.0
+            pv, vol = pv + b.turnover, vol + b.volume
+            d["vwap"] = pv / vol if vol else None
+        page, nxt = paginate(dicts, "ts_open", limit, cursor)
         return {"provider": self.p.capabilities.name, "data_quality": self.p.capabilities.trade_quality.value,
                 "bars": page, "total_bars": len(bars), "next_cursor": nxt}
 
@@ -123,6 +152,26 @@ class Service:
         k = vp.key_levels(prof)
         return {"approximated": prof.approximated, "tick": tick, "rows": {str(r): v for r, v in sorted(prof.volume.items())},
                 "levels": asdict(k), "nodes": [asdict(n) for n in vp.nodes(prof)]}
+
+    async def session_profiles(self, iid: str, tick: float, start: datetime, end: datetime, spec: mp.SessionSpec) -> dict[str, Any]:
+        check_span(start, end)
+        return await self._memo("sp", end, (iid, tick, start, end, spec.name), lambda: self._session_profiles(iid, tick, start, end, spec))
+
+    async def _session_profiles(self, iid: str, tick: float, start: datetime, end: datetime, spec: mp.SessionSpec) -> dict[str, Any]:
+        """One volume profile per exchange session, with the bid/ask split per row and Dalton-style key levels."""
+        groups: dict[datetime, list[Trade]] = {}
+        for t in await self._trades(iid, start, end):
+            k = spec.session_start(t.ts)
+            if k is not None:
+                groups.setdefault(k, []).append(t)
+        out = []
+        for k in sorted(groups):
+            prof = vp.from_trades(groups[k], tick)
+            lv = vp.key_levels(prof)
+            out.append({"start": k.isoformat(), "end": groups[k][-1].ts.isoformat(), "tick": tick, "total": prof.total,
+                        "rows": {str(r): [prof.bid.get(r, 0.0), prof.ask.get(r, 0.0)] for r in sorted(prof.volume)},
+                        "levels": asdict(lv), "nodes": [asdict(n) for n in vp.nodes(prof)]})
+        return {"provider": self.p.capabilities.name, "sessions": out}
 
     async def observations(self, iid: str, tick: float, start: datetime, end: datetime, tf: str, spec: mp.SessionSpec | None = None,
                            limit: int | None = None, cursor: str | None = None) -> dict[str, Any]:
@@ -139,12 +188,17 @@ class Service:
 
     async def market_profile(self, iid: str, tick: float, start: datetime, end: datetime, spec: mp.SessionSpec, period: int = 30) -> dict[str, Any]:
         check_span(start, end)
+        return await self._memo("tpo", end, (iid, tick, start, end, spec.name, period), lambda: self._market_profile(iid, tick, start, end, spec, period))
+
+    async def _market_profile(self, iid: str, tick: float, start: datetime, end: datetime, spec: mp.SessionSpec, period: int) -> dict[str, Any]:
         candles = list(await self.p.candles(iid, start, end, "1m"))
         profs = mp.build_tpo(candles, spec, tick, period)
         out = []
         for p in profs:
             lv = mp.tpo_levels(p)
-            out.append({"start": p.start.isoformat(), "counts": {str(r): n for r, n in sorted(p.counts.items())},
+            out.append({"start": p.start.isoformat(), "tick": p.tick, "period_minutes": p.period_minutes, "n_periods": p.n_periods,
+                        "open": p.open_px, "close": p.close_px, "ib_high_row": p.ib_high_row, "ib_low_row": p.ib_low_row,
+                        "counts": {str(r): n for r, n in sorted(p.counts.items())},
                         "letters": {str(r): s for r, s in sorted((p.letters or {}).items())}, "levels": asdict(lv)})
         return {"profiles": out, "note": "TPO is price-time based and independent of aggressor data."}
 
