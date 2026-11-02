@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { fmtPrice } from "../lib/format";
 import { connectWS, fetchFootprint, fetchSessionProfiles, fetchTPO } from "../lib/net";
+import { priorDayLevels, stepReplay, volCone } from "../lib/levels";
 import { defaultDays, lastWeekdays } from "../lib/range";
 import { pickRowSize, rowLadder } from "../lib/scale";
 import type { FootprintBarDTO, InstrumentDTO, SessionProfileDTO, TPODTO } from "../lib/types";
@@ -14,7 +15,7 @@ interface Props { instruments: InstrumentDTO[]; initial: PaneConfig; onContext?:
 
 const TFS = ["1m", "5m", "15m", "30m", "1h"];
 const MIN_ROW_PX: Record<Mode, number> = { footprint: 16, candles: 7, tpo: 13 };
-const DEFAULT_OPTS: SceneOpts = { stats: true, delta: true, vwap: true, profile: true, imbalance: true, volume: true };
+const DEFAULT_OPTS: SceneOpts = { stats: true, delta: true, vwap: true, profile: true, imbalance: true, volume: true, levels: false, cone: false };
 
 const btn = (on: boolean): React.CSSProperties => ({
   background: on ? "#1d4ed8" : "#111827", color: on ? "#fff" : "#cbd5e1", border: `1px solid ${on ? "#3b82f6" : "#273244"}`,
@@ -35,7 +36,11 @@ export function Workspace({ instruments, initial, onContext }: Props) {
   const [autoTick, setAutoTick] = useState<number>(inst?.row_hint ?? 1);
   const resolvedTick = rowMode === "auto" ? autoTick : rowMode;
 
-  const [bars, setBars] = useState<FootprintBarDTO[]>([]);
+  const [allBars, setBars] = useState<FootprintBarDTO[]>([]);
+  const [replay, setReplay] = useState<number | null>(null); // number of bars revealed; null = off
+  const [playing, setPlaying] = useState(false);
+  const [speed, setSpeed] = useState(1);
+  const bars = useMemo(() => (replay === null ? allBars : allBars.slice(0, replay)), [allBars, replay]);
   const [barsKey, setBarsKey] = useState(""); // which (instrument|timeframe|days) the current bars belong to
   const [provider, setProvider] = useState(""); const [quality, setQuality] = useState("");
   const [sess, setSess] = useState<SessionProfileDTO[]>([]);
@@ -52,6 +57,12 @@ export function Workspace({ instruments, initial, onContext }: Props) {
   const viewKey = useRef("");
 
   const range = useMemo(() => lastWeekdays(days), [days]);
+  // Replay must not leak the future: server-built session profiles / TPO that include bars after the cursor are hidden
+  const lastShown = bars[bars.length - 1];
+  const sessV = useMemo(() => (replay === null || !lastShown ? sess : sess.filter((x) => Date.parse(x.end) <= Date.parse(lastShown.ts_close))), [sess, replay, lastShown]);
+  const tpoV = useMemo(() => (replay === null || !lastShown ? tpo : tpo.filter((x) => x.start.slice(0, 10) < lastShown.ts_open.slice(0, 10))), [tpo, replay, lastShown]);
+  const levels = useMemo(() => (opts.levels ? priorDayLevels(bars) : null), [bars, opts.levels]);
+  const cone = useMemo(() => (opts.cone ? volCone(bars) : []), [bars, opts.cone]);
   const tsMs = useMemo(() => bars.map((b) => Date.parse(b.ts_open)), [bars]);
   const session = inst?.session ?? "";
 
@@ -89,6 +100,22 @@ export function Workspace({ instruments, initial, onContext }: Props) {
 
   useEffect(() => { if (inst) onContext?.({ iid, tick: resolvedTick, tf, start: range.start, end: range.end, session }); }, [iid, resolvedTick, tf, range.start, range.end, session, inst, onContext]);
 
+  useEffect(() => { setReplay(null); setPlaying(false); }, [barsKey]); // new data set: leave replay
+
+  // --- replay: reveal one bar per tick; the view follows the newest bar only if it was already at the right edge
+  useEffect(() => {
+    if (!playing || replay === null) return;
+    if (replay >= allBars.length) { setPlaying(false); return; }
+    const id = setTimeout(() => {
+      const wasAtEdge = vpRef.current.rightIdx >= replay - 1;
+      setReplay(stepReplay(replay, allBars.length));
+      if (wasAtEdge) vpRef.current = { ...vpRef.current, rightIdx: replay + 1.5 };
+    }, 800 / speed);
+    return () => clearTimeout(id);
+  }, [playing, replay, speed, allBars.length]);
+  const startReplay = () => { const n = Math.max(1, Math.floor(allBars.length * 0.6)); setReplay(n); setPlaying(false); vpRef.current = { ...vpRef.current, rightIdx: n - 1 + 1.5, autoY: true }; };
+  const stopReplay = () => { setReplay(null); setPlaying(false); vpRef.current = { ...vpRef.current, rightIdx: allBars.length - 1 + 1.5 }; };
+
   // --- view
   const plotW = Math.max(100, size.w - 72);
   const initView = useCallback((n: number, m: Mode, keepRight = false) => {
@@ -109,8 +136,8 @@ export function Workspace({ instruments, initial, onContext }: Props) {
   useEffect(() => { if (bars.length) initView(bars.length, mode, true); }, [mode]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // --- draw
-  const inputs = useRef({ bars, tsMs, mode, opts, sess, tpo, inst, resolvedTick, provider, quality, live, loading, err, tf, rowMode, profBusy });
-  inputs.current = { bars, tsMs, mode, opts, sess, tpo, inst, resolvedTick, provider, quality, live, loading, err, tf, rowMode, profBusy };
+  const inputs = useRef({ levels, cone, bars, tsMs, mode, opts, sess: sessV, tpo: tpoV, inst, resolvedTick, provider, quality, live, loading, err, tf, rowMode, profBusy });
+  inputs.current = { levels, cone, bars, tsMs, mode, opts, sess: sessV, tpo: tpoV, inst, resolvedTick, provider, quality, live, loading, err, tf, rowMode, profBusy };
 
   const draw = useCallback(() => {
     const c = canvas.current; const I = inputs.current;
@@ -129,7 +156,7 @@ export function Workspace({ instruments, initial, onContext }: Props) {
     if (!(vpRef.current.rightIdx <= maxRight)) vpRef.current = { ...vpRef.current, rightIdx: I.bars.length - 1 + 1.5 }; // also repairs NaN
     const res = renderScene(ctx, {
       w: size.w, h: size.h, bars: I.bars, tsMs: I.tsMs, vp: vpRef.current, mode: I.mode, opts: I.opts, sessionProfiles: I.sess, tpo: I.tpo,
-      hover: hover.current, head: `${I.inst.symbol} · ${I.tf} · row ${fmtPrice(I.resolvedTick, I.inst.tick_size)}`, instrTick: I.inst.tick_size, badges, message,
+      levels: I.levels, cone: I.cone, hover: hover.current, head: `${I.inst.symbol} · ${I.tf} · row ${fmtPrice(I.resolvedTick, I.inst.tick_size)}`, instrTick: I.inst.tick_size, badges, message,
     });
     result.current = res;
     // adapt the row size to what is on screen so numbers stay readable
@@ -199,7 +226,10 @@ export function Workspace({ instruments, initial, onContext }: Props) {
   }, [request, initView]);
 
   const compact = size.w < 780;
-  const toggle = (k: keyof SceneOpts) => setOpts((o) => ({ ...o, [k]: !o[k] }));
+  const toggle = (k: keyof SceneOpts) => {
+    if (k === "cone" && !opts.cone && vpRef.current.rightIdx >= inputs.current.bars.length - 1) vpRef.current = { ...vpRef.current, rightIdx: inputs.current.bars.length - 1 + 12 }; // room for the 12-bar cone
+    setOpts((o) => ({ ...o, [k]: !o[k] }));
+  };
   const ladder = useMemo(() => (inst ? rowLadder(inst.tick_size).filter((v) => v <= inst.tick_size * 2000).slice(0, 24) : []), [inst]);
 
   return (
@@ -219,7 +249,18 @@ export function Workspace({ instruments, initial, onContext }: Props) {
         </select></label>
         {mode === "footprint" && !compact && <label style={{ color: "#9aa4b2", fontSize: 12 }}>Imbalance <select aria-label="Imbalance ratio" style={sel} value={ratio} onChange={(e) => setRatio(Number(e.target.value))}>{[2, 3, 4, 5].map((r) => <option key={r} value={r}>{r}×</option>)}</select></label>}
         <span style={{ width: 1, height: 18, background: "#273244" }} />
-        {([["stats", "Stats", "Stats"], ["delta", "Delta bars", "Δ bars"], ["vwap", "VWAP", "VWAP"], ["profile", "Profile", "VP"], ["imbalance", "Imbalance", "Imb"], ["volume", "Volume", "Vol"]] as [keyof SceneOpts, string, string][]).map(([k, label, short]) => <button key={k} style={btn(opts[k])} aria-pressed={opts[k]} title={label} onClick={() => toggle(k)}>{compact ? short : label}</button>)}
+        {([["stats", "Stats", "Stats"], ["delta", "Delta bars", "Δ bars"], ["vwap", "VWAP", "VWAP"], ["profile", "Profile", "VP"], ["imbalance", "Imbalance", "Imb"], ["volume", "Volume", "Vol"], ["levels", "Levels", "Lvl"], ["cone", "Vol cone", "Cone"]] as [keyof SceneOpts, string, string][]).map(([k, label, short]) => <button key={k} style={btn(opts[k])} aria-pressed={opts[k]} title={label} onClick={() => toggle(k)}>{compact ? short : label}</button>)}
+        <span style={{ width: 1, height: 18, background: "#273244" }} />
+        {replay === null
+          ? <button style={btn(false)} disabled={allBars.length < 4} title="Replay the loaded bars from 60% onward" onClick={startReplay}>Replay</button>
+          : <>
+              <button style={btn(playing)} aria-pressed={playing} onClick={() => setPlaying((p) => !p)}>{playing ? "Pause" : "Play"}</button>
+              <button style={btn(false)} title="Back one bar" onClick={() => { setPlaying(false); setReplay((r) => stepReplay(r ?? 1, allBars.length, -1)); }}>◀</button>
+              <button style={btn(false)} title="Forward one bar" onClick={() => { setPlaying(false); setReplay((r) => stepReplay(r ?? 1, allBars.length, 1)); }}>▶</button>
+              <select aria-label="Replay speed" style={sel} value={speed} onChange={(e) => setSpeed(Number(e.target.value))}>{[1, 2, 5, 10].map((x) => <option key={x} value={x}>{x}×</option>)}</select>
+              <span style={{ color: "#9aa4b2", fontSize: 11.5 }}>{replay}/{allBars.length}</span>
+              <button style={btn(false)} onClick={stopReplay}>Exit</button>
+            </>}
         <button style={btn(false)} onClick={() => { initView(bars.length, mode); request(); }} title="Double-click the chart also resets">Reset</button>
       </div>
       <div ref={wrap} style={{ flex: 1, minHeight: 0, position: "relative" }}>

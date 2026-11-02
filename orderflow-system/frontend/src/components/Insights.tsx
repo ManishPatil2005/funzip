@@ -16,12 +16,13 @@ export function Insights({ ctx }: { ctx: PaneContext | null }) {
     if (!ctx) return;
     let stale = false;
     const base = { iid: ctx.iid, tick: ctx.tick, start: ctx.start, end: ctx.end, tf: ctx.tf, session: ctx.session };
-    fetchObservations(base).then((o) => !stale && setObs(o.observations)).catch(() => !stale && setObs([]));
+    fetchObservations(base).then((o) => !stale && setObs(o.observations ?? [])).catch(() => !stale && setObs([]));
     // heatmap: first 30 minutes of the window's last session day, where depth exists
-    const lastDay = new Date(Date.parse(ctx.end) - 24 * 3600 * 1000);
+    let lastDay = new Date(Date.parse(ctx.end) - 24 * 3600 * 1000);
+    while (lastDay.getUTCDay() === 0 || lastDay.getUTCDay() === 6) lastDay = new Date(lastDay.getTime() - 24 * 3600 * 1000); // no sessions on weekends
     const s = new Date(Date.UTC(lastDay.getUTCFullYear(), lastDay.getUTCMonth(), lastDay.getUTCDate(), 3, 45));
     fetchHeatmap({ iid: ctx.iid, tick: ctx.tick, start: s.toISOString(), end: new Date(s.getTime() + 30 * 60000).toISOString(), dt: 5 })
-      .then((h) => !stale && setHeat(h.intensity)).catch(() => !stale && setHeat([]));
+      .then((h) => !stale && setHeat(h.intensity ?? [])).catch(() => !stale && setHeat([]));
     return () => { stale = true; };
   }, [ctx?.iid, ctx?.tick, ctx?.tf, ctx?.start, ctx?.end, ctx?.session]); // eslint-disable-line react-hooks/exhaustive-deps
 

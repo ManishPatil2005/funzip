@@ -7,15 +7,18 @@ import { drawFootprint, hitCell, type CellHit } from "./footprint";
 import { layoutPanes, type PaneLayout } from "./layout";
 import { drawCrosshair, drawDeltaBars, drawGrid, drawLegend, drawPriceLabels, drawStatsTable, drawTimeAxis, priceTag } from "./panes";
 import { drawTPO } from "./tpo";
+import { drawCone, drawLevels } from "./levels";
+import type { ConePoint, DayLevels } from "../lib/levels";
 import { rgba, T } from "./theme";
 
 export type Mode = "footprint" | "candles" | "tpo";
-export interface SceneOpts { stats: boolean; delta: boolean; vwap: boolean; profile: boolean; imbalance: boolean; volume: boolean }
+export interface SceneOpts { stats: boolean; delta: boolean; vwap: boolean; profile: boolean; imbalance: boolean; volume: boolean; levels: boolean; cone: boolean }
 
 export interface SceneInput {
   w: number; h: number; bars: FootprintBarDTO[]; tsMs: number[]; vp: Viewport; mode: Mode; opts: SceneOpts;
   sessionProfiles: SessionProfileDTO[]; tpo: TPODTO[]; hover: { x: number; y: number } | null;
   head: string; instrTick: number; badges: { text: string; color: string }[]; message: string;
+  levels?: DayLevels | null; cone?: ConePoint[];
 }
 
 export interface SceneResult { layout: PaneLayout; vp: Viewport; hoverBar: number | null; hoverCell: CellHit | null; rangeFromData: boolean }
@@ -56,6 +59,8 @@ export function renderScene(ctx: CanvasRenderingContext2D, s: SceneInput): Scene
     drawTPO(ctx, s.tpo, s.tsMs, vp, L.main);
     if (s.opts.vwap) drawVWAP(ctx, bars, vp, L.main);
   }
+  if (s.opts.levels && s.levels) drawLevels(ctx, s.levels, vp, L.main, s.instrTick);
+  if (s.opts.cone && s.cone?.length && bars.length) drawCone(ctx, s.cone, bars.length - 1, bars[bars.length - 1]!.close, vp, L.main);
   ctx.restore();
   drawPriceLabels(ctx, vp, L.main, s.instrTick, L.axisX);
 
