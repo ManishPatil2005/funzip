@@ -54,7 +54,8 @@ def create_app(provider: MarketDataProvider | None = None, api_key: str | None =
                 rec = Recorder(PgStore.connect(dsn), iid, os.environ.get("OFX_LIVE_TF", "1m"))
             task = asyncio.create_task(run_ingest(svc.p, iid, float(os.environ.get("OFX_LIVE_TICK", "0.5")), tf, hub,
                                                   on_closed=rec.on_closed if rec else None, on_trade=rec.on_trade if rec else None,
-                                                  spec=_spec(os.environ.get("OFX_LIVE_SESSION", ""))))
+                                                  spec=_spec(os.environ.get("OFX_LIVE_SESSION", "")),
+                                                  resilient=svc.p.capabilities.name != "synthetic"))
         try:
             yield
         finally:

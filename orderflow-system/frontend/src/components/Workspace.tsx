@@ -47,6 +47,7 @@ export function Workspace({ instruments, initial, onContext }: Props) {
   const [tpo, setTpo] = useState<TPODTO[]>([]);
   const [loading, setLoading] = useState(true); const [err, setErr] = useState(""); const [live, setLive] = useState(false);
   const [profBusy, setProfBusy] = useState(false);
+  const [feed, setFeed] = useState<"" | "reconnecting" | "stopped">(""); // live feed state from server status frames
   const [size, setSize] = useState({ w: 800, h: 520 });
 
   const wrap = useRef<HTMLDivElement>(null), canvas = useRef<HTMLCanvasElement>(null);
@@ -91,9 +92,10 @@ export function Workspace({ instruments, initial, onContext }: Props) {
   useEffect(() => {
     if (!inst) return;
     return connectWS(`${iid}:footprint`, (m) => {
-      const msg = m as { type?: string; bar?: FootprintBarDTO };
+      const msg = m as { type?: string; state?: string; bar?: FootprintBarDTO };
+      if (msg.type === "status") { setFeed(msg.state === "disconnected" ? "reconnecting" : msg.state === "giving_up" ? "stopped" : ""); return; }
       if (msg.type !== "footprint" || !msg.bar || Math.abs(msg.bar.tick - resolvedTick) > 1e-9) return;
-      const bar = msg.bar; setLive(true);
+      const bar = msg.bar; setLive(true); setFeed("");
       setBars((prev) => { const i = prev.findIndex((b) => b.ts_open === bar.ts_open); if (i < 0) return [...prev, bar].slice(-2000); const n = prev.slice(); n[i] = bar; return n; });
     }, () => setLive(false));
   }, [iid, resolvedTick, inst]);
@@ -136,8 +138,8 @@ export function Workspace({ instruments, initial, onContext }: Props) {
   useEffect(() => { if (bars.length) initView(bars.length, mode, true); }, [mode]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // --- draw
-  const inputs = useRef({ levels, cone, bars, tsMs, mode, opts, sess: sessV, tpo: tpoV, inst, resolvedTick, provider, quality, live, loading, err, tf, rowMode, profBusy });
-  inputs.current = { levels, cone, bars, tsMs, mode, opts, sess: sessV, tpo: tpoV, inst, resolvedTick, provider, quality, live, loading, err, tf, rowMode, profBusy };
+  const inputs = useRef({ feed, levels, cone, bars, tsMs, mode, opts, sess: sessV, tpo: tpoV, inst, resolvedTick, provider, quality, live, loading, err, tf, rowMode, profBusy });
+  inputs.current = { feed, levels, cone, bars, tsMs, mode, opts, sess: sessV, tpo: tpoV, inst, resolvedTick, provider, quality, live, loading, err, tf, rowMode, profBusy };
 
   const draw = useCallback(() => {
     const c = canvas.current; const I = inputs.current;
@@ -149,6 +151,7 @@ export function Workspace({ instruments, initial, onContext }: Props) {
     const badges: { text: string; color: string }[] = [];
     if (I.provider === "synthetic") badges.push({ text: "DEMO DATA", color: "#f59e0b" });
     if (I.quality) badges.push({ text: `DELTA ${I.quality.toUpperCase().replace("_", " ")}`, color: I.quality === "exact" ? "#22c55e" : "#f59e0b" });
+    if (I.feed) badges.push({ text: I.feed === "stopped" ? "FEED STOPPED" : "RECONNECTING…", color: I.feed === "stopped" ? "#ef4444" : "#f59e0b" });
     if (I.live) badges.push({ text: "LIVE", color: "#22c55e" });
     if ((I.loading || I.profBusy) && I.bars.length) badges.push({ text: "LOADING…", color: "#38bdf8" });
     const message = I.err ? `Error: ${I.err}` : I.loading && !I.bars.length ? "Loading…" : !I.bars.length ? "No trades in this window" : "";

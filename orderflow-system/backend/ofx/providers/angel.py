@@ -180,12 +180,19 @@ class AngelProvider:
         feed_token = self._feed_token
         ws = SmartWebSocketV2(self._jwt, self._c["ANGEL_SMARTAPI_KEY"], self._c["ANGEL_CLIENT_ID"], feed_token)
         ws.on_data = lambda _w, msg: loop.call_soon_threadsafe(q.put_nowait, msg)
+        # SDK errors and closes are surfaced into the stream so the reconnect wrapper sees them; a dropped
+        # session also clears the JWT so the next attempt logs in again (tokens expire overnight).
+        ws.on_error = lambda _w, *a: loop.call_soon_threadsafe(q.put_nowait, ConnectionError(f"websocket error: {a[-1] if a else ''}"))
+        ws.on_close = lambda _w, *a: loop.call_soon_threadsafe(q.put_nowait, ConnectionError("websocket closed"))
         ws.on_open = lambda _w: ws.subscribe("ofx", 3, [{"exchangeType": EXCHANGE_TYPE[exch], "tokens": [tok]}])
         task = loop.run_in_executor(None, ws.connect)
         state: dict = {"vol": None, "seq": 0}
         try:
             while True:
                 tick = await q.get()
+                if isinstance(tick, BaseException):
+                    self._jwt = None
+                    raise tick
                 tr = ticks_to_trade(tick, state)
                 if tr is not None:
                     yield tr

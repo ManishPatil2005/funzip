@@ -104,7 +104,7 @@ class Recorder:
 
 async def run_ingest(provider: MarketDataProvider, iid: str, tick: float, timeframe: timedelta, hub: Hub,
                      stop: asyncio.Event | None = None, on_closed: Callable[[FootprintBar], None] | None = None,
-                     on_trade: Callable[[Trade], None] | None = None, spec: Any = None) -> int:
+                     on_trade: Callable[[Trade], None] | None = None, spec: Any = None, resilient: bool = False) -> int:
     """Consume the provider stream until it ends or `stop` is set. Returns trades processed."""
     cfg = ImbalanceConfig()
     if spec is not None:  # exchange session: bars start at the open, CVD resets per session
@@ -114,7 +114,13 @@ async def run_ingest(provider: MarketDataProvider, iid: str, tick: float, timefr
         live = LiveFootprint(tick, timeframe)
     rule = None if provider.capabilities.aggressor_flag else StreamingTickRule()
     topic, n = f"{iid}:footprint", 0
-    async for t in provider.stream_trades(iid):
+    topic_status = f"{iid}:footprint"
+    source = provider.stream_trades(iid)
+    if resilient:  # live providers: reconnect, drop replays, announce state so the UI can show it
+        from ofx.providers.resilient import resilient_trades
+        source = resilient_trades(lambda: provider.stream_trades(iid), max_failures=25,
+                                  on_event=lambda kind, d: hub.publish(topic_status, {"type": "status", "state": kind, **d}))
+    async for t in source:
         if stop is not None and stop.is_set():
             break
         if rule is not None:

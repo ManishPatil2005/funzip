@@ -134,6 +134,9 @@ class DeltaProvider:
             await ws.send(self._subscribe_msg(iid, "all_trades"))
             async for raw in ws:
                 m = json.loads(raw)
+                if m.get("type") == "error":  # UNVERIFIED frame shape: assumed {"type":"error", ...}; a bad subscription is not retryable
+                    from ofx.providers.resilient import FatalStreamError
+                    raise FatalStreamError(f"delta stream error: {str(m.get('message', m))[:120]}")
                 if m.get("type") in ("all_trades", "all_trades_snapshot") and "price" in m:
                     seq += 1
                     yield parse_trade(m, seq, self._verified)
