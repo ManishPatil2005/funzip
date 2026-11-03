@@ -1,6 +1,6 @@
 """READ-ONLY live smoke test. Run on YOUR machine (the build sandbox cannot reach these hosts).
 
-    cd backend && pip install -r requirements.txt && python scripts/smoke_live.py [--angel-token 3045 --angel-exch NSE]
+    cd backend && pip install -r requirements.txt -r requirements-live.txt && python scripts/smoke_live.py [--angel-token 3045 --angel-exch NSE]
 
 Reads backend/.env (never printed). Performs only: Angel login + one historical-candle request; Delta public
 products + recent trades. No order, balance or position endpoint is called anywhere in this project.

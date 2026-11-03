@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 import hmac
 import os
+import pathlib
 import time
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
@@ -26,6 +27,7 @@ from ofx.providers.synthetic import SyntheticProvider
 Start = Annotated[datetime, Query()]
 Tick = Annotated[float, Query(gt=0)]
 SESSIONS = {"NSE": NSE_EQUITY, "MCX": MCX_COMMODITY, "CRYPTO": CRYPTO_UTC_DAY}
+EXCHANGE_SESSION = {"NSE": "NSE", "MCX": "MCX", "DELTA": "CRYPTO"}  # instrument exchange -> session calendar
 
 
 def _spec(session: str):  # type: ignore[no-untyped-def]
@@ -110,8 +112,11 @@ def create_app(provider: MarketDataProvider | None = None, api_key: str | None =
     @app.get("/api/v1/instruments", dependencies=[Auth])
     async def instruments() -> dict:
         items = await svc.p.instruments()
+        only = {x.strip().upper() for x in os.environ.get("OFX_INSTRUMENTS", "").split(",") if x.strip()}
+        if only:  # e.g. OFX_INSTRUMENTS=BTCUSD,ETHUSD keeps a 500-product exchange list usable
+            items = [i for i in items if i.symbol.upper() in only]
         return {"instruments": [{"iid": i.iid, "symbol": i.symbol, "exchange": i.exchange, "tick_size": i.tick_size, "lot_size": i.lot_size,
-                                 "tz": i.tz, "session": i.exchange if i.exchange in SESSIONS else "",
+                                 "tz": i.tz, "session": EXCHANGE_SESSION.get(i.exchange, ""),
                                  "row_hint": ROW_HINT.get(i.iid, i.tick_size * 10)} for i in items]}
 
     @app.get("/api/v1/footprint", dependencies=[Auth])
@@ -199,4 +204,10 @@ def create_app(provider: MarketDataProvider | None = None, api_key: str | None =
     return app
 
 
-app = create_app()
+def _default_app() -> FastAPI:
+    from ofx.providers.factory import load_env_file, provider_from_env
+    load_env_file(pathlib.Path(__file__).resolve().parent.parent / ".env")
+    return create_app(provider_from_env())
+
+
+app = _default_app()
