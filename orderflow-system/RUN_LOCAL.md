@@ -1,5 +1,7 @@
 # Run locally (your machine)
 
+**Windows shortcut:** after `git pull` and filling `backend\.env`, double-click `start-angel.bat` (stocks/NIFTY), `start-delta.bat` (crypto) or `start-demo.bat`. It opens the API and UI windows and the browser. Leave both windows open. Set `OFX_API_KEY=` (blank) in `backend\.env` for local use. The steps below are the manual equivalent.
+
 Needs Python 3.11+ and Node 18+. Commands use a terminal; on Windows use PowerShell and replace `source .venv/bin/activate` with `.venv\Scripts\Activate.ps1`.
 
 ## 1. Get the code
