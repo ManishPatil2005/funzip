@@ -31,6 +31,11 @@ export function drawVolumeBars(ctx: CanvasRenderingContext2D, bars: FootprintBar
     const b = bars[i];
     if (!b) continue;
     const cx = idxToX(v, r, i);
+    if (b.ask_volume + b.bid_volume === 0) { // no buy/sell split available: one neutral bar, never an invented split
+      const h = (b.volume / max) * H;
+      ctx.fillStyle = rgba("#64748b", 0.6); ctx.fillRect(cx - bw / 2, r.y + r.h - h, bw, h);
+      continue;
+    }
     const ha = (b.ask_volume / max) * H, hb = (b.bid_volume / max) * H;
     ctx.fillStyle = rgba(T.up, 0.55); ctx.fillRect(cx - bw / 2, r.y + r.h - ha, bw, ha);
     ctx.fillStyle = rgba(T.dn, 0.55); ctx.fillRect(cx - bw / 2, r.y + r.h - ha - hb, bw, hb);

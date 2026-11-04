@@ -129,8 +129,9 @@ export function drawLegend(ctx: CanvasRenderingContext2D, b: FootprintBarDTO | u
   const col = b.close >= b.open ? T.up : T.dn;
   const parts: [string, string, string][] = [
     ["O", fmtPrice(b.open, tick), col], ["H", fmtPrice(b.high, tick), col], ["L", fmtPrice(b.low, tick), col], ["C", fmtPrice(b.close, tick), col],
-    ["Vol", fmtVol(b.volume), T.textBright], ["Buy", fmtVol(b.ask_volume), T.up], ["Sell", fmtVol(b.bid_volume), T.dn], ["Δ", fmtSigned(b.delta), b.delta >= 0 ? T.up : T.dn],
+    ["Vol", fmtVol(b.volume), T.textBright],
   ];
+  if (b.quality !== "bar_approximated") parts.push(["Buy", fmtVol(b.ask_volume), T.up], ["Sell", fmtVol(b.bid_volume), T.dn], ["Δ", fmtSigned(b.delta), b.delta >= 0 ? T.up : T.dn]); // no split to show for OHLCV-only bars
   ctx.font = `11px ${T.mono}`;
   for (const [k, val, c] of parts) {
     if (cx + ctx.measureText(`${k} ${val}`).width + 16 > maxX) break; // never run under the badges

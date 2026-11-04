@@ -81,6 +81,8 @@ def parse_candles(rows: Sequence[Mapping[str, Any]]) -> list[Candle]:
 
 
 class DeltaProvider:
+    recent_trades_only = True  # REST serves only recent prints; deeper history must be recorded from the live feed
+
     def __init__(self, api_key: str = "", secret: str = "", *, base_url: str | None = None, ws_url: str | None = None,
                  client: httpx.AsyncClient | None = None, aggressor_verified: bool | None = None) -> None:
         self._key, self._secret = api_key, secret
@@ -105,6 +107,11 @@ class DeltaProvider:
         res = await self._get("/v2/products")
         return [Instrument(f"DELTA:{p['symbol']}", p["symbol"], "DELTA", float(p.get("tick_size") or 0.5), float(p.get("contract_value") or 1.0))
                 for p in res if p.get("symbol")]
+
+    async def search(self, q: str, limit: int = 20) -> Sequence[Instrument]:
+        n = q.strip().upper()
+        hits = [i for i in await self.instruments() if n and n in i.symbol.upper()]
+        return sorted(hits, key=lambda i: (not i.symbol.upper().startswith(n), len(i.symbol), i.symbol))[:limit]
 
     async def candles(self, iid: str, start: datetime, end: datetime, timeframe: str) -> Sequence[Candle]:
         if timeframe not in RESOLUTIONS:

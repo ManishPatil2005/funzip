@@ -21,7 +21,7 @@ from ofx.orderflow.footprint import (
     stacked_imbalances,
     utc_day,
 )
-from ofx.providers.base import MarketDataProvider
+from ofx.providers.base import MarketDataProvider, ProviderUnsupported
 
 TF = {"1m": 60, "5m": 300, "15m": 900, "30m": 1800, "1h": 3600}
 MAX_SPAN = timedelta(days=7)
@@ -129,7 +129,11 @@ class Service:
 
     async def _footprint(self, iid: str, tick: float, start: datetime, end: datetime, tf: str, ratio: float, min_stack: int,
                          spec: mp.SessionSpec | None, limit: int | None, cursor: str | None) -> dict[str, Any]:
-        bars = apply_session_cvd(build_footprint(await self._trades(iid, start, end), tick, parse_tf(tf), _offset(spec, tf)), _skey(spec))
+        try:
+            trades = await self._trades(iid, start, end)
+        except ProviderUnsupported:  # no tick history (e.g. Angel One): serve honest OHLCV bars instead of failing
+            return await self._candle_bars(iid, tick, start, end, tf, limit, cursor)
+        bars = apply_session_cvd(build_footprint(trades, tick, parse_tf(tf), _offset(spec, tf)), _skey(spec))
         cfg = ImbalanceConfig(ratio=ratio)
         if sum(len(b.rows) for b in bars) > MAX_ROWS:
             raise BadRequest(f"too many price rows ({sum(len(b.rows) for b in bars)}); use a larger row size or a shorter window")
@@ -143,6 +147,20 @@ class Service:
         page, nxt = paginate(dicts, "ts_open", limit, cursor)
         return {"provider": self.p.capabilities.name, "data_quality": self.p.capabilities.trade_quality.value,
                 "bars": page, "total_bars": len(bars), "next_cursor": nxt}
+
+    async def _candle_bars(self, iid: str, tick: float, start: datetime, end: datetime, tf: str, limit: int | None, cursor: str | None) -> dict[str, Any]:
+        """OHLCV-only bars in the footprint DTO shape. There is NO bid/ask split: rows are empty, delta is 0 and the whole
+        volume is flagged unattributed (unknown_share = 1), quality = bar_approximated. The UI must not draw numeric cells."""
+        step = parse_tf(tf)
+        out = []
+        for c in await self.p.candles(iid, start, end, tf):
+            out.append({
+                "ts_open": c.ts_open.isoformat(), "ts_close": (c.ts_open + step).isoformat(), "tick": tick,
+                "open": c.open, "high": c.high, "low": c.low, "close": c.close, "volume": c.volume, "delta": 0.0, "delta_min": 0.0, "delta_max": 0.0,
+                "cvd_open": 0.0, "cvd_close": 0.0, "bid_volume": 0.0, "ask_volume": 0.0, "poc_row": price_to_row((c.high + c.low + c.close) / 3, tick),
+                "unknown_share": 1.0, "quality": "bar_approximated", "rows": {}, "imbalances": [], "stacked": [], "vwap": None})
+        page, nxt = paginate(out, "ts_open", limit, cursor)
+        return {"provider": self.p.capabilities.name, "data_quality": "bar_approximated", "bars": page, "total_bars": len(out), "next_cursor": nxt}
 
     async def volume_profile(self, iid: str, tick: float, start: datetime, end: datetime) -> dict[str, Any]:
         check_span(start, end)

@@ -12,8 +12,6 @@ def test_delta_needs_no_credentials():
 
 
 def test_angel_requires_tokens_and_credentials():
-    with pytest.raises(ValueError, match="ANGEL_TOKENS"):
-        provider_from_env({"OFX_PROVIDER": "angel"})
     with pytest.raises(Exception, match="missing environment variables"):
         provider_from_env({"OFX_PROVIDER": "angel", "ANGEL_TOKENS": "NSE:SBIN-EQ=NSE:3045"})
     ok = {"OFX_PROVIDER": "angel", "ANGEL_TOKENS": "NSE:SBIN-EQ=NSE:3045", "ANGEL_SMARTAPI_KEY": "k", "ANGEL_CLIENT_ID": "c", "ANGEL_PASSWORD": "p", "ANGEL_TOTP_SECRET": "JBSWY3DPEHPK3PXP"}

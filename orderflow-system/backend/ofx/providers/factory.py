@@ -2,7 +2,7 @@
 
     OFX_PROVIDER=synthetic | delta | angel
     delta: public data only; optional DELTA_BASE_URL / DELTA_WS_URL / DELTA_TAKER_VERIFIED
-    angel: needs ANGEL_* credentials and ANGEL_TOKENS="NSE:SBIN-EQ=NSE:3045,NSE:RELIANCE-EQ=NSE:2885"
+    angel: needs ANGEL_* credentials. Any stock/index/future is searchable in the UI; ANGEL_TOKENS="NSE:SBIN-EQ=NSE:3045,NSE:RELIANCE-EQ=NSE:2885"
            (iid=EXCHANGE:symboltoken; the token is Angel's numeric instrument token)
 Values are read from the process environment; backend/.env is loaded first if it exists (never printed, never committed).
 """
@@ -49,8 +49,6 @@ def provider_from_env(env: Mapping[str, str] | None = None) -> MarketDataProvide
         return DeltaProvider(e.get("DELTA_EXCHANGE_API_KEY", ""), e.get("DELTA_EXCHANGE_SECRET", ""))
     if name == "angel":
         from ofx.providers.angel import AngelProvider, credentials_from_env
-        tokens = parse_angel_tokens(e.get("ANGEL_TOKENS", ""))
-        if not tokens:
-            raise ValueError("OFX_PROVIDER=angel needs ANGEL_TOKENS, e.g. NSE:SBIN-EQ=NSE:3045")
+        tokens = parse_angel_tokens(e.get("ANGEL_TOKENS", "")) or None  # None -> built-in defaults (NIFTY, BANKNIFTY, SBIN, RELIANCE)
         return cast(MarketDataProvider, AngelProvider(credentials_from_env(e), tokens))  # Angel aliases depth/quote streams to the tick stream
     raise ValueError(f"OFX_PROVIDER must be synthetic, delta or angel, got {name!r}")

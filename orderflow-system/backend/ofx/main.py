@@ -20,14 +20,14 @@ from ofx.api.service import TF, BadRequest, Service
 from ofx.export import COLUMNS, ParquetUnavailable, footprint_rows, to_parquet
 from ofx.ingest import run_ingest
 from ofx.orderflow.market_profile import CRYPTO_UTC_DAY, MCX_COMMODITY, NSE_EQUITY
-from ofx.providers.base import MarketDataProvider
+from ofx.providers.base import MarketDataProvider, ProviderUnsupported
 from ofx.providers.demo_market import ROW_HINT
 from ofx.providers.synthetic import SyntheticProvider
 
 Start = Annotated[datetime, Query()]
 Tick = Annotated[float, Query(gt=0)]
 SESSIONS = {"NSE": NSE_EQUITY, "MCX": MCX_COMMODITY, "CRYPTO": CRYPTO_UTC_DAY}
-EXCHANGE_SESSION = {"NSE": "NSE", "MCX": "MCX", "DELTA": "CRYPTO"}  # instrument exchange -> session calendar
+EXCHANGE_SESSION = {"NSE": "NSE", "BSE": "NSE", "NFO": "NSE", "MCX": "MCX", "DELTA": "CRYPTO"}  # instrument exchange -> session calendar
 
 
 def _spec(session: str):  # type: ignore[no-untyped-def]
@@ -100,6 +100,10 @@ def create_app(provider: MarketDataProvider | None = None, api_key: str | None =
     async def _bad(_, exc: BadRequest):  # type: ignore[no-untyped-def]
         return JSONResponse({"error": str(exc)}, status_code=400)
 
+    @app.exception_handler(ProviderUnsupported)
+    async def _unsupported(_, exc: ProviderUnsupported):  # type: ignore[no-untyped-def]
+        return JSONResponse({"error": str(exc)}, status_code=501)
+
     @app.get("/health")
     async def health() -> dict[str, str]:
         return {"status": "ok"}
@@ -109,16 +113,25 @@ def create_app(provider: MarketDataProvider | None = None, api_key: str | None =
         c = svc.p.capabilities
         return {**c.__dict__, "trade_quality": c.trade_quality.value}
 
+    def _inst_dto(i) -> dict:  # type: ignore[no-untyped-def]
+        return {"iid": i.iid, "symbol": i.symbol, "exchange": i.exchange, "tick_size": i.tick_size, "lot_size": i.lot_size,
+                "tz": i.tz, "session": EXCHANGE_SESSION.get(i.exchange, ""), "row_hint": ROW_HINT.get(i.iid, i.tick_size * 10),
+                "live": svc.p.capabilities.name != "synthetic", "trades_history": svc.p.capabilities.historical_trades,
+                "recent_trades_only": bool(getattr(svc.p, "recent_trades_only", False))}
+
     @app.get("/api/v1/instruments", dependencies=[Auth])
     async def instruments() -> dict:
         items = await svc.p.instruments()
         only = {x.strip().upper() for x in os.environ.get("OFX_INSTRUMENTS", "").split(",") if x.strip()}
         if only:  # e.g. OFX_INSTRUMENTS=BTCUSD,ETHUSD keeps a 500-product exchange list usable
             items = [i for i in items if i.symbol.upper() in only]
-        return {"instruments": [{"iid": i.iid, "symbol": i.symbol, "exchange": i.exchange, "tick_size": i.tick_size, "lot_size": i.lot_size,
-                                 "tz": i.tz, "session": EXCHANGE_SESSION.get(i.exchange, ""),
-                                 "row_hint": ROW_HINT.get(i.iid, i.tick_size * 10),
-                                 "live": svc.p.capabilities.name != "synthetic", "trades_history": svc.p.capabilities.historical_trades} for i in items]}
+        return {"instruments": [_inst_dto(i) for i in items]}
+
+    @app.get("/api/v1/instruments/search", dependencies=[Auth])
+    async def instrument_search(q: Annotated[str, Query(min_length=1, max_length=40)], limit: Annotated[int, Query(ge=1, le=50)] = 20) -> dict:
+        finder = getattr(svc.p, "search", None)
+        items = list(await finder(q, limit)) if finder else [i for i in await svc.p.instruments() if q.upper() in i.symbol.upper()][:limit]
+        return {"instruments": [_inst_dto(i) for i in items]}
 
     @app.get("/api/v1/footprint", dependencies=[Auth])
     async def footprint(iid: str, tick: Tick, start: Start, end: Start, tf: str = "5m",

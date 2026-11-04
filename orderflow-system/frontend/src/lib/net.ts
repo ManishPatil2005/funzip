@@ -11,6 +11,7 @@ export async function getJSON<T>(path: string, params: Record<string, string | n
 }
 
 export const fetchFootprint = (p: Record<string, string | number>) => getJSON<FootprintResponse>("/api/v1/footprint", p);
+export const searchInstruments = (q: string) => getJSON<{ instruments: InstrumentDTO[] }>("/api/v1/instruments/search", { q, limit: 15 });
 export const fetchObservations = (p: Record<string, string | number>) =>
   getJSON<{ observations: ObservationDTO[] }>("/api/v1/observations", p);
 

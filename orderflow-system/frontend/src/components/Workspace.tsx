@@ -8,6 +8,7 @@ import type { FootprintBarDTO, InstrumentDTO, SessionProfileDTO, TPODTO } from "
 import { MIN_SPACING, panX, panY, zoomX, zoomY, type Viewport } from "../lib/viewport";
 import { renderScene, type Mode, type SceneOpts, type SceneResult } from "../render/scene";
 import { T } from "../render/theme";
+import { SymbolSearch } from "./SymbolSearch";
 
 export interface PaneConfig { iid: string; tf: string; mode: Mode }
 export interface PaneContext { iid: string; tick: number; tf: string; start: string; end: string; session: string }
@@ -24,7 +25,9 @@ const btn = (on: boolean): React.CSSProperties => ({
 const sel: React.CSSProperties = { background: "#111827", color: "#e5e7eb", border: "1px solid #273244", borderRadius: 4, padding: "3px 6px", fontSize: 12 };
 
 /** One chart pane: toolbar + canvas engine. Everything the user can change lives here so panes are independent. */
-export function Workspace({ instruments, initial, onContext }: Props) {
+export function Workspace({ instruments: baseInstruments, initial, onContext }: Props) {
+  const [extra, setExtra] = useState<InstrumentDTO[]>([]); // symbols picked through search
+  const instruments = useMemo(() => [...baseInstruments, ...extra.filter((e) => !baseInstruments.some((b) => b.iid === e.iid))], [baseInstruments, extra]);
   const [iid, setIid] = useState(initial.iid);
   const [tf, setTf] = useState(initial.tf);
   const [mode, setMode] = useState<Mode>(initial.mode);
@@ -69,8 +72,13 @@ export function Workspace({ instruments, initial, onContext }: Props) {
   const session = inst?.session ?? "";
 
   // a live provider that only serves recent trades (Delta) has no multi-day footprint: start on 1m / 1 day
-  const recentOnly = isLive && inst?.trades_history === false;
+  const recentOnly = isLive && !!inst?.recent_trades_only;
   useEffect(() => { if (recentOnly) { setTf("1m"); setDays(1); } }, [recentOnly, iid]);
+
+  // OHLCV-only data (no ticks): there is no bid/ask split, so footprint, delta and imbalance views do not apply
+  const approx = quality === "bar_approximated";
+  useEffect(() => { if (approx && mode === "footprint") setMode("candles"); }, [approx, mode]);
+  const effOpts = useMemo<SceneOpts>(() => (approx ? { ...opts, stats: false, delta: false, imbalance: false, profile: false } : opts), [approx, opts]);
 
   // --- data
   useEffect(() => {
@@ -143,8 +151,8 @@ export function Workspace({ instruments, initial, onContext }: Props) {
   useEffect(() => { if (bars.length) initView(bars.length, mode, true); }, [mode]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // --- draw
-  const inputs = useRef({ recentOnly, feed, levels, cone, bars, tsMs, mode, opts, sess: sessV, tpo: tpoV, inst, resolvedTick, provider, quality, live, loading, err, tf, rowMode, profBusy });
-  inputs.current = { recentOnly, feed, levels, cone, bars, tsMs, mode, opts, sess: sessV, tpo: tpoV, inst, resolvedTick, provider, quality, live, loading, err, tf, rowMode, profBusy };
+  const inputs = useRef({ recentOnly, feed, levels, cone, bars, tsMs, mode, opts: effOpts, sess: sessV, tpo: tpoV, inst, resolvedTick, provider, quality, live, loading, err, tf, rowMode, profBusy });
+  inputs.current = { recentOnly, feed, levels, cone, bars, tsMs, mode, opts: effOpts, sess: sessV, tpo: tpoV, inst, resolvedTick, provider, quality, live, loading, err, tf, rowMode, profBusy };
 
   const draw = useCallback(() => {
     const c = canvas.current; const I = inputs.current;
@@ -155,7 +163,7 @@ export function Workspace({ instruments, initial, onContext }: Props) {
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     const badges: { text: string; color: string }[] = [];
     if (I.provider === "synthetic") badges.push({ text: "DEMO DATA", color: "#f59e0b" });
-    if (I.quality) badges.push({ text: `DELTA ${I.quality.toUpperCase().replace("_", " ")}`, color: I.quality === "exact" ? "#22c55e" : "#f59e0b" });
+    if (I.quality) badges.push(I.quality === "bar_approximated" ? { text: "CANDLES ONLY · NO TICK DATA", color: "#38bdf8" } : { text: `DELTA ${I.quality.toUpperCase().replace("_", " ")}`, color: I.quality === "exact" ? "#22c55e" : "#f59e0b" });
     if (I.feed) badges.push({ text: I.feed === "stopped" ? "FEED STOPPED" : "RECONNECTING…", color: I.feed === "stopped" ? "#ef4444" : "#f59e0b" });
     if (I.live) badges.push({ text: "LIVE", color: "#22c55e" });
     if ((I.loading || I.profBusy) && I.bars.length) badges.push({ text: "LOADING…", color: "#38bdf8" });
@@ -246,9 +254,10 @@ export function Workspace({ instruments, initial, onContext }: Props) {
         <select aria-label="Instrument" style={sel} value={iid} onChange={(e) => { setIid(e.target.value); const n = instruments.find((i) => i.iid === e.target.value); if (n) setAutoTick(n.row_hint); }}>
           {instruments.map((i) => <option key={i.iid} value={i.iid}>{i.symbol} ({i.exchange})</option>)}
         </select>
+        <SymbolSearch onPick={(i) => { setExtra((x) => (x.some((e) => e.iid === i.iid) ? x : [...x, i])); setIid(i.iid); setAutoTick(i.row_hint); setRowMode("auto"); }} />
         {TFS.map((t) => <button key={t} style={btn(tf === t)} aria-pressed={tf === t} onClick={() => { setTf(t); setDays(defaultDays(t)); }}>{t}</button>)}
         <span style={{ width: 1, height: 18, background: "#273244" }} />
-        {([["footprint", "Footprint", "FP"], ["candles", "Candles + VP", "Candles"], ["tpo", "TPO", "TPO"]] as [Mode, string, string][]).map(([m, label, short]) => <button key={m} style={btn(mode === m)} aria-pressed={mode === m} title={label} onClick={() => setMode(m)}>{compact ? short : label}</button>)}
+        {([["footprint", "Footprint", "FP"], ["candles", "Candles + VP", "Candles"], ["tpo", "TPO", "TPO"]] as [Mode, string, string][]).map(([m, label, short]) => <button key={m} style={{ ...btn(mode === m), ...(approx && m === "footprint" ? { opacity: 0.4, cursor: "not-allowed" } : {}) }} aria-pressed={mode === m} disabled={approx && m === "footprint"} title={approx && m === "footprint" ? "Needs tick data; this provider only has candles" : label} onClick={() => setMode(m)}>{compact ? short : label}</button>)}
         <span style={{ width: 1, height: 18, background: "#273244" }} />
         {[1, 3, 5].map((d) => <button key={d} style={btn(days === d)} aria-pressed={days === d} onClick={() => setDays(d)}>{d}D</button>)}
         <label style={{ color: "#9aa4b2", fontSize: 12 }}>Row <select aria-label="Row size" style={sel} value={rowMode === "auto" ? "auto" : String(rowMode)} onChange={(e) => setRowMode(e.target.value === "auto" ? "auto" : Number(e.target.value))}>
@@ -257,7 +266,7 @@ export function Workspace({ instruments, initial, onContext }: Props) {
         </select></label>
         {mode === "footprint" && !compact && <label style={{ color: "#9aa4b2", fontSize: 12 }}>Imbalance <select aria-label="Imbalance ratio" style={sel} value={ratio} onChange={(e) => setRatio(Number(e.target.value))}>{[2, 3, 4, 5].map((r) => <option key={r} value={r}>{r}×</option>)}</select></label>}
         <span style={{ width: 1, height: 18, background: "#273244" }} />
-        {([["stats", "Stats", "Stats"], ["delta", "Delta bars", "Δ bars"], ["vwap", "VWAP", "VWAP"], ["profile", "Profile", "VP"], ["imbalance", "Imbalance", "Imb"], ["volume", "Volume", "Vol"], ["levels", "Levels", "Lvl"], ["cone", "Vol cone", "Cone"]] as [keyof SceneOpts, string, string][]).map(([k, label, short]) => <button key={k} style={btn(opts[k])} aria-pressed={opts[k]} title={label} onClick={() => toggle(k)}>{compact ? short : label}</button>)}
+        {([["stats", "Stats", "Stats"], ["delta", "Delta bars", "Δ bars"], ["vwap", "VWAP", "VWAP"], ["profile", "Profile", "VP"], ["imbalance", "Imbalance", "Imb"], ["volume", "Volume", "Vol"], ["levels", "Levels", "Lvl"], ["cone", "Vol cone", "Cone"]] as [keyof SceneOpts, string, string][]).map(([k, label, short]) => <button key={k} style={{ ...btn(effOpts[k]), ...(approx && !effOpts[k] && k !== "levels" && k !== "cone" ? { opacity: 0.4, cursor: "not-allowed" } : {}) }} aria-pressed={effOpts[k]} disabled={approx && !effOpts[k] && opts[k] && k !== "levels" && k !== "cone"} title={label} onClick={() => toggle(k)}>{compact ? short : label}</button>)}
         <span style={{ width: 1, height: 18, background: "#273244" }} />
         {replay === null
           ? <button style={btn(false)} disabled={allBars.length < 4} title="Replay the loaded bars from 60% onward" onClick={startReplay}>Replay</button>

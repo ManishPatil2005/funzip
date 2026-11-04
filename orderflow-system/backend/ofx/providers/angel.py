@@ -20,6 +20,8 @@ from zoneinfo import ZoneInfo
 import httpx
 
 from ofx.domain import AggressorSide, Candle, Instrument, Trade
+from ofx.providers.angel_master import MasterCache, Scrip
+from ofx.providers.angel_master import search as master_search
 from ofx.providers.base import Capabilities, ProviderUnsupported
 from ofx.providers.totp import totp
 
@@ -37,6 +39,13 @@ REQUIRED_ENV = ("ANGEL_SMARTAPI_KEY", "ANGEL_CLIENT_ID", "ANGEL_PIN", "ANGEL_TOT
 
 INTERVALS = {"1m": ("ONE_MINUTE", 60), "5m": ("FIVE_MINUTE", 300), "15m": ("FIFTEEN_MINUTE", 900),
              "30m": ("THIRTY_MINUTE", 1800), "1h": ("ONE_HOUR", 3600), "1d": ("ONE_DAY", 86400)}
+
+
+# Shown before any search. Index tokens are recalled from Angel docs and UNVERIFIED; SBIN (3045) was confirmed by the smoke test.
+DEFAULT_TOKENS: dict[str, tuple[str, str]] = {
+    "NSE:Nifty 50": ("NSE", "99926000"), "NSE:Nifty Bank": ("NSE", "99926009"),
+    "NSE:SBIN-EQ": ("NSE", "3045"), "NSE:RELIANCE-EQ": ("NSE", "2885"),
+}
 
 
 class AngelAuthError(RuntimeError):
@@ -101,11 +110,12 @@ class AngelProvider:
     def __init__(self, creds: Mapping[str, str], tokens: Mapping[str, tuple[str, str]] | None = None,
                  client: httpx.AsyncClient | None = None, clock=None) -> None:
         self._c = dict(creds)
-        self._tokens = dict(tokens or {})  # iid -> (exchange, symboltoken)
+        self._tokens = dict(tokens or DEFAULT_TOKENS)  # iid -> (exchange, symboltoken)
         self._http = client or httpx.AsyncClient(base_url=BASE, timeout=15)
         self._jwt: str | None = None
         self._feed_token: str | None = None
         self._clock = clock
+        self._master = MasterCache()
 
     def __repr__(self) -> str:
         return "AngelProvider(credentials=***)"
@@ -132,15 +142,27 @@ class AngelProvider:
     async def instruments(self) -> Sequence[Instrument]:
         return [Instrument(iid, iid.split(":")[-1], ex, 0.05) for iid, (ex, _tok) in self._tokens.items()]
 
+    async def search(self, q: str, limit: int = 20) -> list[Instrument]:
+        """Search the Angel instrument master; results can be charted immediately (tokens resolve lazily)."""
+        found = master_search(await self._master.scrips(), q, limit)
+        return [Instrument(f.iid, f.symbol, f.exchange, f.tick_size, f.lot_size, "Asia/Kolkata") for f in found]
+
+    async def _resolve(self, iid: str) -> tuple[str, str]:
+        if iid in self._tokens:
+            return self._tokens[iid]
+        sc: Scrip | None = await self._master.get(iid)
+        if sc is None:
+            raise ProviderUnsupported(f"unknown instrument {iid}; search for it first")
+        self._tokens[iid] = (sc.exchange, sc.token)
+        return self._tokens[iid]
+
     async def candles(self, iid: str, start: datetime, end: datetime, timeframe: str) -> Sequence[Candle]:
         if timeframe not in INTERVALS:
             raise ProviderUnsupported(f"timeframe {timeframe}")
-        if iid not in self._tokens:
-            raise ProviderUnsupported(f"no symbol token configured for {iid}")
+        exch, tok = await self._resolve(iid)
         if self._jwt is None:
             await self.login()
         name, secs = INTERVALS[timeframe]
-        exch, tok = self._tokens[iid]
         step = timedelta(seconds=secs * CAPABILITIES.max_candles_per_request)  # respect the per-request cap
         out: list[Candle] = []
         cur = start
@@ -174,7 +196,7 @@ class AngelProvider:
 
         if self._jwt is None:
             await self.login()
-        exch, tok = self._tokens[iid]
+        exch, tok = await self._resolve(iid)
         loop = asyncio.get_running_loop()
         q: asyncio.Queue = asyncio.Queue()
         feed_token = self._feed_token
