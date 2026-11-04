@@ -44,6 +44,18 @@ async def angel_check(token: str, exch: str) -> None:
         print(f"FAILED: {type(e).__name__}: {str(e)[:200]}")
 
 
+async def master_check() -> None:
+    print("== Angel instrument master (search)")
+    try:
+        from ofx.providers.angel_master import MasterCache, search
+        sc = await MasterCache().scrips()
+        print(f"instruments kept: {len(sc)}")
+        for q in ("NIFTY", "RELIANCE"):
+            print(q, "->", [f"{s.iid}[{s.kind},tick={s.tick_size}]" for s in search(sc, q, 4)])
+    except Exception as e:
+        print(f"FAILED: {type(e).__name__}: {str(e)[:200]}")
+
+
 async def delta_check() -> None:
     print("== Delta Exchange (public data)")
     for base, ws in ((delta.INDIA_REST, delta.INDIA_WS), (delta.GLOBAL_REST, delta.GLOBAL_WS)):
@@ -73,4 +85,5 @@ if __name__ == "__main__":
     a = ap.parse_args()
     load_env(pathlib.Path(__file__).resolve().parent.parent / ".env")
     asyncio.run(angel_check(a.angel_token, a.angel_exch))
+    asyncio.run(master_check())
     asyncio.run(delta_check())
