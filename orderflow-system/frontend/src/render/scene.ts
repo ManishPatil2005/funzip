@@ -33,6 +33,14 @@ export function renderScene(ctx: CanvasRenderingContext2D, s: SceneInput): Scene
   if (vp.autoY) { const a = autoRange(bars, i0, i1, Math.max(0.06, 40 / L.main.h), Math.max(0.05, 22 / L.main.h)); if (a) { vp = { ...vp, lo: a[0], hi: a[1] }; rangeFromData = true; } }
 
   ctx.fillStyle = T.bg; ctx.fillRect(0, 0, s.w, s.h);
+  if (!bars.length) { // nothing to scale: no placeholder axes, stats rows or delta pane, just the title, badges and the reason
+    ctx.fillStyle = T.textBright; ctx.font = `bold 12px ${T.sans}`; ctx.textAlign = "left"; ctx.textBaseline = "middle"; ctx.fillText(s.head, 10, 16);
+    ctx.font = `bold 10px ${T.sans}`; ctx.textAlign = "right";
+    let ex = s.w - 10;
+    for (const b of s.badges) { const w = ctx.measureText(b.text).width + 12; ctx.fillStyle = rgba(b.color, 0.18); ctx.fillRect(ex - w, 6, w, 18); ctx.strokeStyle = rgba(b.color, 0.7); ctx.strokeRect(ex - w + 0.5, 6.5, w - 1, 17); ctx.fillStyle = b.color; ctx.fillText(b.text, ex - 6, 15.5); ex -= w + 6; }
+    if (s.message) { ctx.fillStyle = T.text; ctx.font = `14px ${T.sans}`; ctx.textAlign = "center"; ctx.fillText(s.message, s.w / 2, s.h / 2, s.w - 40); }
+    return { layout: L, vp, hoverBar: null, hoverCell: null, rangeFromData: false };
+  }
   drawTimeAxis(ctx, bars, vp, L);
 
   // hover resolution (done early so the footprint can highlight the cell)

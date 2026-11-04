@@ -20,3 +20,14 @@ export function lastWeekdays(n: number, nowMs: number = Date.now()): { start: st
 
 /** Default number of trading days per timeframe so bar counts stay reasonable. */
 export const defaultDays = (tf: string): number => ({ "1m": 1, "5m": 3, "15m": 5, "30m": 5, "1h": 5 }[tf] ?? 3);
+
+/**
+ * Rolling window for LIVE providers: ends just after "now" so today's trades are included (the completed-days window
+ * above excludes today, which is where a live feed's recent trades are). 24/7 sessions (CRYPTO) use `days` x 24 h;
+ * exchange sessions use today plus the previous days-1 weekdays. The 5-minute pad absorbs clock skew vs the server.
+ */
+export function recentWindow(days: number, session: string, nowMs: number = Date.now()): { start: string; end: string } {
+  const end = new Date(nowMs + 5 * 60000).toISOString();
+  if (session === "CRYPTO" || !session) return { start: new Date(nowMs - days * 24 * 3600 * 1000).toISOString(), end };
+  return { start: lastWeekdays(Math.max(0, days - 1), nowMs).start, end };
+}

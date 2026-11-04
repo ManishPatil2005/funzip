@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { fmtPrice } from "../lib/format";
 import { connectWS, fetchFootprint, fetchSessionProfiles, fetchTPO } from "../lib/net";
 import { priorDayLevels, stepReplay, volCone } from "../lib/levels";
-import { defaultDays, lastWeekdays } from "../lib/range";
+import { defaultDays, lastWeekdays, recentWindow } from "../lib/range";
 import { pickRowSize, rowLadder } from "../lib/scale";
 import type { FootprintBarDTO, InstrumentDTO, SessionProfileDTO, TPODTO } from "../lib/types";
 import { MIN_SPACING, panX, panY, zoomX, zoomY, type Viewport } from "../lib/viewport";
@@ -57,7 +57,8 @@ export function Workspace({ instruments, initial, onContext }: Props) {
   const raf = useRef(0), rowTimer = useRef<ReturnType<typeof setTimeout>>();
   const viewKey = useRef("");
 
-  const range = useMemo(() => lastWeekdays(days), [days]);
+  const isLive = !!inst?.live;
+  const range = useMemo(() => (isLive ? recentWindow(days, inst?.session ?? "") : lastWeekdays(days)), [days, isLive, inst?.session, iid]); // eslint-disable-line react-hooks/exhaustive-deps
   // Replay must not leak the future: server-built session profiles / TPO that include bars after the cursor are hidden
   const lastShown = bars[bars.length - 1];
   const sessV = useMemo(() => (replay === null || !lastShown ? sess : sess.filter((x) => Date.parse(x.end) <= Date.parse(lastShown.ts_close))), [sess, replay, lastShown]);
@@ -66,6 +67,10 @@ export function Workspace({ instruments, initial, onContext }: Props) {
   const cone = useMemo(() => (opts.cone ? volCone(bars) : []), [bars, opts.cone]);
   const tsMs = useMemo(() => bars.map((b) => Date.parse(b.ts_open)), [bars]);
   const session = inst?.session ?? "";
+
+  // a live provider that only serves recent trades (Delta) has no multi-day footprint: start on 1m / 1 day
+  const recentOnly = isLive && inst?.trades_history === false;
+  useEffect(() => { if (recentOnly) { setTf("1m"); setDays(1); } }, [recentOnly, iid]);
 
   // --- data
   useEffect(() => {
@@ -138,8 +143,8 @@ export function Workspace({ instruments, initial, onContext }: Props) {
   useEffect(() => { if (bars.length) initView(bars.length, mode, true); }, [mode]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // --- draw
-  const inputs = useRef({ feed, levels, cone, bars, tsMs, mode, opts, sess: sessV, tpo: tpoV, inst, resolvedTick, provider, quality, live, loading, err, tf, rowMode, profBusy });
-  inputs.current = { feed, levels, cone, bars, tsMs, mode, opts, sess: sessV, tpo: tpoV, inst, resolvedTick, provider, quality, live, loading, err, tf, rowMode, profBusy };
+  const inputs = useRef({ recentOnly, feed, levels, cone, bars, tsMs, mode, opts, sess: sessV, tpo: tpoV, inst, resolvedTick, provider, quality, live, loading, err, tf, rowMode, profBusy });
+  inputs.current = { recentOnly, feed, levels, cone, bars, tsMs, mode, opts, sess: sessV, tpo: tpoV, inst, resolvedTick, provider, quality, live, loading, err, tf, rowMode, profBusy };
 
   const draw = useCallback(() => {
     const c = canvas.current; const I = inputs.current;
@@ -154,7 +159,7 @@ export function Workspace({ instruments, initial, onContext }: Props) {
     if (I.feed) badges.push({ text: I.feed === "stopped" ? "FEED STOPPED" : "RECONNECTING…", color: I.feed === "stopped" ? "#ef4444" : "#f59e0b" });
     if (I.live) badges.push({ text: "LIVE", color: "#22c55e" });
     if ((I.loading || I.profBusy) && I.bars.length) badges.push({ text: "LOADING…", color: "#38bdf8" });
-    const message = I.err ? `Error: ${I.err}` : I.loading && !I.bars.length ? "Loading…" : !I.bars.length ? "No trades in this window" : "";
+    const message = I.err ? `Error: ${I.err}` : I.loading && !I.bars.length ? "Loading…" : !I.bars.length ? (I.recentOnly ? "No recent trades yet. This provider serves only recent prints; record the live feed (OFX_LIVE_IID) to build history." : "No trades in this window") : "";
     const maxRight = Math.max(0, I.bars.length - 1) + 12;
     if (!(vpRef.current.rightIdx <= maxRight)) vpRef.current = { ...vpRef.current, rightIdx: I.bars.length - 1 + 1.5 }; // also repairs NaN
     const res = renderScene(ctx, {

@@ -13,7 +13,7 @@ export interface FootprintBarDTO {
 
 export interface FootprintResponse { provider: string; data_quality: Quality; bars: FootprintBarDTO[]; total_bars: number; next_cursor: string | null }
 
-export interface InstrumentDTO { iid: string; symbol: string; exchange: string; tick_size: number; lot_size: number; tz: string; session: string; row_hint: number }
+export interface InstrumentDTO { iid: string; symbol: string; exchange: string; tick_size: number; lot_size: number; tz: string; session: string; row_hint: number; live?: boolean; trades_history?: boolean }
 
 export interface SessionProfileDTO {
   start: string; end: string; tick: number; total: number;

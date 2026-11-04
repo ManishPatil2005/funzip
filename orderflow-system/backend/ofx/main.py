@@ -117,7 +117,8 @@ def create_app(provider: MarketDataProvider | None = None, api_key: str | None =
             items = [i for i in items if i.symbol.upper() in only]
         return {"instruments": [{"iid": i.iid, "symbol": i.symbol, "exchange": i.exchange, "tick_size": i.tick_size, "lot_size": i.lot_size,
                                  "tz": i.tz, "session": EXCHANGE_SESSION.get(i.exchange, ""),
-                                 "row_hint": ROW_HINT.get(i.iid, i.tick_size * 10)} for i in items]}
+                                 "row_hint": ROW_HINT.get(i.iid, i.tick_size * 10),
+                                 "live": svc.p.capabilities.name != "synthetic", "trades_history": svc.p.capabilities.historical_trades} for i in items]}
 
     @app.get("/api/v1/footprint", dependencies=[Auth])
     async def footprint(iid: str, tick: Tick, start: Start, end: Start, tf: str = "5m",

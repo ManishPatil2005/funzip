@@ -113,3 +113,18 @@ describe("precheckRule", () => {
     expect(precheckRule('{"all_of":[{"kind":"a"}]}')).toMatchObject({ ok: false });
   });
 });
+
+import { recentWindow } from "../src/lib/range";
+describe("recentWindow", () => {
+  const now = Date.parse("2026-11-04T08:00:00Z"); // Wed
+  it("crypto: rolling 24h*days ending just after now", () => {
+    const w = recentWindow(1, "CRYPTO", now);
+    expect(Date.parse(w.end)).toBe(now + 5 * 60000);
+    expect(Date.parse(w.start)).toBe(now - 24 * 3600 * 1000);
+  });
+  it("exchange session: includes today (IST midnight) and ends after now", () => {
+    const w = recentWindow(1, "NSE", now);
+    expect(w.start).toBe("2026-11-03T18:30:00.000Z"); // Wed 4 Nov 00:00 IST
+    expect(Date.parse(w.end)).toBeGreaterThan(now);
+  });
+});
