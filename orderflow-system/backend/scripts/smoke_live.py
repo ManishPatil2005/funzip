@@ -69,7 +69,13 @@ async def delta_check() -> None:
             raw = await p._get(f"/v2/trades/{sym.symbol}")
             print(f"sample trade keys: {sorted(raw[0].keys()) if raw else 'none'}")
             has_roles = bool(raw) and "buyer_role" in raw[0] and "seller_role" in raw[0]
-            print(f"taker side present in payload: {has_roles}  -> set DELTA_TAKER_VERIFIED=1 only if True")
+            print(f"taker side present in payload: {has_roles}")
+            if has_roles:
+                from collections import Counter
+                pairs = Counter((r.get("buyer_role"), r.get("seller_role")) for r in raw[:200])
+                print(f"(buyer_role, seller_role) pairs over {min(len(raw), 200)} trades: {dict(pairs)}")
+                ok = all(set(k) == {"taker", "maker"} for k in pairs)  # exactly one taker and one maker on every trade
+                print(f"each trade has exactly one taker and one maker: {ok}  -> set DELTA_TAKER_VERIFIED=1 only if True")
             end = datetime.now(UTC)
             c = await p.candles(f"DELTA:{sym.symbol}", end - timedelta(hours=6), end, "5m")
             print(f"candles: {len(c)} rows")

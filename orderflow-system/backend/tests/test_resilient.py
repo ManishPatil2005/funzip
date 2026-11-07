@@ -143,3 +143,35 @@ def test_run_ingest_resilient_publishes_status_events():
     msgs = run(go())
     states = [m["state"] for m in msgs if m.get("type") == "status"]
     assert "disconnected" in states and "reconnected" in states
+
+
+def test_quiet_feed_never_gives_up_and_recovers():
+    b = tr(2, 101, 1, S.ASK, 2)
+    n = {"c": 0}
+
+    def make():
+        n["c"] += 1
+        calls = n["c"]
+
+        async def g():
+            if calls <= 5:  # five silent connections (market closed), then the open
+                await asyncio.sleep(10)
+            yield b
+        return g()
+    ev = []
+    out = run(collect(resilient_trades(make, stale_after=0.01, sleep=nosleep, max_failures=2, on_event=lambda k, d: ev.append(k)), 1))
+    assert out[0].price == 101 and ev.count("idle") == 5 and "giving_up" not in ev
+
+
+def test_fatal_error_emits_event_before_raising():
+    ev = []
+    with pytest.raises(FatalStreamError):
+        run(collect(resilient_trades(factory_of([FatalStreamError("bad key")]), sleep=nosleep, on_event=lambda k, d: ev.append(k))))
+    assert ev == ["fatal"]
+
+
+def test_dedupe_can_be_disabled_for_providers_that_do_not_replay():
+    p1 = tr(1, 100, 1, S.ASK, 1)
+    f = factory_of([p1, ConnectionError("x")], [p1])  # a genuine new identical print after reconnect
+    out = run(collect(resilient_trades(f, sleep=nosleep, dedupe=False), 2))
+    assert len(out) == 2

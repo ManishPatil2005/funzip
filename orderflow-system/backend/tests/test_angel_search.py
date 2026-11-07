@@ -83,3 +83,15 @@ def test_search_endpoint_default_filters_instruments():
     j = c.get("/api/v1/instruments/search?q=nif").json()
     assert any("NIFTY" in i["symbol"] for i in j["instruments"])
     assert c.get("/api/v1/instruments/search?q=").status_code == 422
+
+
+def test_recent_only_provider_reports_where_coverage_starts():
+    from ofx.providers.synthetic import SyntheticProvider
+    from tests.conftest import T0
+    class Recent(SyntheticProvider):
+        recent_trades_only = True
+        async def trades(self, iid, start, end):
+            return [t for t in await super().trades(iid, start, end) if t.ts >= T0 + timedelta(hours=1)]
+    c = TestClient(create_app(Recent(), api_key="", rate_per_min=0))
+    r = c.get("/api/v1/footprint?iid=SYN:TEST&tick=1&start=2026-01-05T04:00:00Z&end=2026-01-05T06:00:00Z&tf=5m").json()
+    assert r["coverage_start"] is not None and r["coverage_start"] >= "2026-01-05T05:00:00"

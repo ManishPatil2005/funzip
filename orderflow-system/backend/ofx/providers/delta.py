@@ -81,6 +81,7 @@ def parse_candles(rows: Sequence[Mapping[str, Any]]) -> list[Candle]:
 
 
 class DeltaProvider:
+    replays_on_reconnect = True  # a fresh subscription may re-send a snapshot of recent prints
     recent_trades_only = True  # REST serves only recent prints; deeper history must be recorded from the live feed
 
     def __init__(self, api_key: str = "", secret: str = "", *, base_url: str | None = None, ws_url: str | None = None,

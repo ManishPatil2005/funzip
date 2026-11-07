@@ -1,6 +1,6 @@
 import type { PlotRect } from "../lib/viewport";
 
-export const AXIS_W = 72, TIME_H = 24, STATS_ROW_H = 20, STATS_ROWS = 4, DELTA_H = 120;
+export const HEAD_H = 26, AXIS_W = 72, TIME_H = 24, STATS_ROW_H = 20, STATS_ROWS = 4, DELTA_H = 120;
 
 export interface PaneLayout { w: number; h: number; main: PlotRect; stats: PlotRect | null; delta: PlotRect | null; time: PlotRect; axisX: number }
 
@@ -19,7 +19,7 @@ export function layoutPanes(w: number, h: number, o: { stats: boolean; delta: bo
   if (mainFor() < MIN_MAIN_H) showStats = false;
   const statsH = showStats ? STATS_ROW_H * STATS_ROWS : 0, deltaH = showDelta ? DELTA_H : 0;
   const mainH = Math.max(60, h - TIME_H - statsH - deltaH);
-  const main = { x: 0, y: 0, w: pw, h: mainH };
+  const main = { x: 0, y: HEAD_H, w: pw, h: mainH - HEAD_H }; // top HEAD_H px hold the legend and badges
   const stats = showStats ? { x: 0, y: mainH, w: pw, h: statsH } : null;
   const delta = showDelta ? { x: 0, y: mainH + statsH, w: pw, h: deltaH } : null;
   return { w, h, main, stats, delta, time: { x: 0, y: mainH + statsH + deltaH, w: pw, h: TIME_H }, axisX: pw };

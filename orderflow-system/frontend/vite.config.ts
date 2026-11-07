@@ -22,6 +22,8 @@ const headers = key ? { "x-api-key": key } : undefined;
 export default defineConfig({
   plugins: [react()],
   server: {
+    host: "localhost", // dev server (and its key-attaching proxy) is reachable only from this machine
+    cors: false, // other websites in your browser must not be able to read proxied API responses
     proxy: {
       "/api": { target: "http://127.0.0.1:8000", headers },
       "/ws": { target: "ws://127.0.0.1:8000", ws: true, headers },

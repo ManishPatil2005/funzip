@@ -18,9 +18,10 @@ export function Insights({ ctx }: { ctx: PaneContext | null }) {
     const base = { iid: ctx.iid, tick: ctx.tick, start: ctx.start, end: ctx.end, tf: ctx.tf, session: ctx.session };
     fetchObservations(base).then((o) => !stale && setObs(o.observations ?? [])).catch(() => !stale && setObs([]));
     // heatmap: first 30 minutes of the window's last session day, where depth exists
-    let lastDay = new Date(Date.parse(ctx.end) - 24 * 3600 * 1000);
+    let lastDay = new Date(Date.parse(ctx.end) - 60000); // the day containing the window end
     while (lastDay.getUTCDay() === 0 || lastDay.getUTCDay() === 6) lastDay = new Date(lastDay.getTime() - 24 * 3600 * 1000); // no sessions on weekends
-    const s = new Date(Date.UTC(lastDay.getUTCFullYear(), lastDay.getUTCMonth(), lastDay.getUTCDate(), 3, 45));
+    const s = ctx.session === "CRYPTO" ? new Date(Date.parse(ctx.end) - 40 * 60000) // 24/7 market: a recent 30 minutes
+      : new Date(Date.UTC(lastDay.getUTCFullYear(), lastDay.getUTCMonth(), lastDay.getUTCDate(), 3, 45));
     fetchHeatmap({ iid: ctx.iid, tick: ctx.tick, start: s.toISOString(), end: new Date(s.getTime() + 30 * 60000).toISOString(), dt: 5 })
       .then((h) => !stale && setHeat(h.intensity ?? [])).catch(() => !stale && setHeat([]));
     return () => { stale = true; };
@@ -28,7 +29,7 @@ export function Insights({ ctx }: { ctx: PaneContext | null }) {
 
   if (!ctx) return null;
   return (
-    <section style={{ padding: "0 16px 32px", maxWidth: 1200 }}>
+    <section style={{ padding: "0 16px 32px", maxWidth: 1200, boxSizing: "border-box", width: "100%", overflowX: "auto" }}>
       <h4 style={h4}>Observations <span style={muted}>(descriptive context for the first pane, never instructions)</span></h4>
       {obs.length === 0 ? <p style={muted}>None in this window.</p> : (
         <ul style={{ fontSize: 13, lineHeight: 1.55, paddingLeft: 18 }}>

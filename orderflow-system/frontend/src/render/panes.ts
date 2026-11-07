@@ -107,7 +107,7 @@ export function drawDeltaBars(ctx: CanvasRenderingContext2D, bars: FootprintBarD
   ctx.restore();
   ctx.font = `10px ${T.mono}`; ctx.fillStyle = T.text; ctx.textAlign = "left";
   for (const t of ticks) ctx.fillText(fmtVol(t), axisX + 6, priceToY(dv, r, t));
-  ctx.font = `bold 11px ${T.mono}`; ctx.fillStyle = T.textBright; ctx.textAlign = "left"; ctx.fillText("Delta bars (cumulative, resets each session)", r.x + 8, r.y + 12);
+  ctx.font = `bold 11px ${T.mono}`; ctx.textAlign = "left"; const ttl = "Delta bars (cumulative, resets each session)"; ctx.fillStyle = rgba(T.bg, 0.85); ctx.fillRect(r.x + 4, r.y + 2, ctx.measureText(ttl).width + 8, 16); ctx.fillStyle = T.textBright; ctx.fillText(ttl, r.x + 8, r.y + 12);
   return { lo, hi };
 }
 

@@ -2,7 +2,8 @@
 
 A raw provider stream ends (or hangs) the moment the socket drops, which would silently stop ingest. This wrapper
   * reconnects with capped exponential backoff and jitter, resetting the attempt counter after the first message,
-  * treats silence longer than `stale_after` as a dead connection (half-open sockets raise nothing),
+  * treats silence longer than `stale_after` as a dead connection (half-open sockets raise nothing); silence is NOT a
+    failure (quiet markets, weekends), so it never counts toward `max_failures` and the feed recovers at the next open,
   * drops trades re-sent right after a reconnect (snapshot replays): only the leading run that matches recently seen prints
     is dropped, each earlier print consumed once, so genuine repeated prints in normal flow are never merged,
   * renumbers `seq` so it stays strictly increasing across reconnects,
@@ -35,7 +36,7 @@ def backoff_delay(attempt: int, base: float = 0.5, cap: float = 15.0, rand: Call
 
 async def resilient_trades(
     factory: Callable[[], AsyncIterator[Trade]], *, stale_after: float = 30.0, base: float = 0.5, cap: float = 15.0,
-    max_failures: int = 0, dedupe_window: int = 2000, on_event: Callable[[str, dict], None] | None = None,
+    max_failures: int = 0, dedupe_window: int = 2000, dedupe: bool = True, on_event: Callable[[str, dict], None] | None = None,
     sleep: Callable[[float], object] = asyncio.sleep, rand: Callable[[], float] = random.random,
 ) -> AsyncIterator[Trade]:
     """`max_failures` consecutive failed connects end the stream with the last error (0 = retry forever)."""
@@ -45,10 +46,11 @@ async def resilient_trades(
     replaying = False
     seq, failures, ever_connected = 0, 0, False
     while True:
-        replay, replaying = Counter(recent), bool(recent)
+        replay, replaying = Counter(recent), dedupe and bool(recent)
         it = factory().__aiter__()
         got_any = False
         err: BaseException | None = None
+        idle = False
         try:
             while True:
                 try:
@@ -58,6 +60,7 @@ async def resilient_trades(
                     break
                 except TimeoutError:
                     err = TimeoutError(f"no data for {stale_after:g}s")
+                    idle = True
                     break
                 if not got_any:
                     got_any, failures = True, 0
@@ -72,7 +75,10 @@ async def resilient_trades(
                 recent.append(key)
                 seq += 1
                 yield replace(t, seq=seq)
-        except (ProviderUnsupported, FatalStreamError, asyncio.CancelledError):
+        except (ProviderUnsupported, FatalStreamError) as e:
+            emit("fatal", {"error": str(e)})  # tell the UI before the task dies; a retry cannot fix this
+            raise
+        except asyncio.CancelledError:
             raise
         except Exception as e:  # noqa: BLE001 - any transport error means "reconnect"
             err = e
@@ -83,7 +89,14 @@ async def resilient_trades(
                     await aclose()
                 except Exception:  # noqa: BLE001, S110 - closing a dead socket may itself fail
                     pass
-        failures += 1
+        if idle and not got_any:
+            emit("idle", {"error": str(err)})
+            await sleep(base)  # type: ignore[misc]
+            continue
+        if idle:
+            failures = 0
+        else:
+            failures += 1
         if max_failures and failures >= max_failures:
             emit("giving_up", {"error": str(err), "failures": failures})
             raise ConnectionError(f"stream failed {failures} times: {err}") from err

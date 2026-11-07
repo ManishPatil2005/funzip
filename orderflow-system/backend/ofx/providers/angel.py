@@ -195,7 +195,11 @@ class AngelProvider:
         from SmartApi.smartWebSocketV2 import SmartWebSocketV2  # type: ignore[import-not-found]
 
         if self._jwt is None:
-            await self.login()
+            try:
+                await self.login()
+            except AngelAuthError as e:  # wrong credentials/TOTP: retrying only risks locking the account
+                from ofx.providers.resilient import FatalStreamError
+                raise FatalStreamError(str(e)) from e
         exch, tok = await self._resolve(iid)
         loop = asyncio.get_running_loop()
         q: asyncio.Queue = asyncio.Queue()

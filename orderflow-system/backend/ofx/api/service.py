@@ -133,6 +133,8 @@ class Service:
             trades = await self._trades(iid, start, end)
         except ProviderUnsupported:  # no tick history (e.g. Angel One): serve honest OHLCV bars instead of failing
             return await self._candle_bars(iid, tick, start, end, tf, limit, cursor)
+        # providers that only keep recent prints: tell the UI where real coverage starts instead of showing understated old bars as complete
+        coverage = trades[0].ts.isoformat() if getattr(self.p, "recent_trades_only", False) and trades and trades[0].ts - start > parse_tf(tf) else None
         bars = apply_session_cvd(build_footprint(trades, tick, parse_tf(tf), _offset(spec, tf)), _skey(spec))
         cfg = ImbalanceConfig(ratio=ratio)
         if sum(len(b.rows) for b in bars) > MAX_ROWS:
@@ -146,7 +148,7 @@ class Service:
             d["vwap"] = pv / vol if vol else None
         page, nxt = paginate(dicts, "ts_open", limit, cursor)
         return {"provider": self.p.capabilities.name, "data_quality": self.p.capabilities.trade_quality.value,
-                "bars": page, "total_bars": len(bars), "next_cursor": nxt}
+                "bars": page, "total_bars": len(bars), "next_cursor": nxt, "coverage_start": coverage}
 
     async def _candle_bars(self, iid: str, tick: float, start: datetime, end: datetime, tf: str, limit: int | None, cursor: str | None) -> dict[str, Any]:
         """OHLCV-only bars in the footprint DTO shape. There is NO bid/ask split: rows are empty, delta is 0 and the whole

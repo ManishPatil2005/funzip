@@ -11,7 +11,7 @@ export interface FootprintBarDTO {
   stacked: { side: "ask" | "bid"; low_row: number; high_row: number }[];
 }
 
-export interface FootprintResponse { provider: string; data_quality: Quality; bars: FootprintBarDTO[]; total_bars: number; next_cursor: string | null }
+export interface FootprintResponse { provider: string; data_quality: Quality; bars: FootprintBarDTO[]; total_bars: number; next_cursor: string | null; coverage_start?: string | null }
 
 export interface InstrumentDTO { iid: string; symbol: string; exchange: string; tick_size: number; lot_size: number; tz: string; session: string; row_hint: number; live?: boolean; trades_history?: boolean; recent_trades_only?: boolean }
 

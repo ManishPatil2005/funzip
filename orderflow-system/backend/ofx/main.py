@@ -220,7 +220,8 @@ def create_app(provider: MarketDataProvider | None = None, api_key: str | None =
 
 def _default_app() -> FastAPI:
     from ofx.providers.factory import load_env_file, provider_from_env
-    load_env_file(pathlib.Path(__file__).resolve().parent.parent / ".env")
+    if not os.environ.get("OFX_NO_DOTENV"):  # tests/tools set this so a developer's real .env is never picked up on import
+        load_env_file(pathlib.Path(__file__).resolve().parent.parent / ".env")
     return create_app(provider_from_env())
 
 

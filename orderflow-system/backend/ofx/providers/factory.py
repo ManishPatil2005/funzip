@@ -24,7 +24,10 @@ def load_env_file(path: pathlib.Path, env: dict[str, str] | None = None) -> None
         line = line.strip()
         if line and not line.startswith("#") and "=" in line:
             k, v = line.split("=", 1)
-            target.setdefault(k.strip(), v.strip().strip("'\""))
+            v = v.strip()
+            if v[:1] not in ("'", '"'):
+                v = v.split(" #", 1)[0].strip()  # inline comment
+            target.setdefault(k.strip(), v.strip("'\""))
 
 
 def parse_angel_tokens(raw: str) -> dict[str, tuple[str, str]]:

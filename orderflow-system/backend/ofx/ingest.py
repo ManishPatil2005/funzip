@@ -118,7 +118,7 @@ async def run_ingest(provider: MarketDataProvider, iid: str, tick: float, timefr
     source = provider.stream_trades(iid)
     if resilient:  # live providers: reconnect, drop replays, announce state so the UI can show it
         from ofx.providers.resilient import resilient_trades
-        source = resilient_trades(lambda: provider.stream_trades(iid), max_failures=25,
+        source = resilient_trades(lambda: provider.stream_trades(iid), max_failures=25, dedupe=bool(getattr(provider, "replays_on_reconnect", False)),
                                   on_event=lambda kind, d: hub.publish(topic_status, {"type": "status", "state": kind, **d}))
     async for t in source:
         if stop is not None and stop.is_set():
@@ -133,10 +133,10 @@ async def run_ingest(provider: MarketDataProvider, iid: str, tick: float, timefr
         if on_trade:
             on_trade(t)
         if closed is not None:
-            hub.publish(topic, {"type": "footprint", "closed": True, "bar": _dto(closed, cfg)})
+            hub.publish(topic, {"type": "footprint", "tf_seconds": int(timeframe.total_seconds()), "closed": True, "bar": _dto(closed, cfg)})
             if on_closed:
                 on_closed(closed)
-        hub.publish(topic, {"type": "footprint", "closed": False, "bar": _dto(forming, cfg)})
+        hub.publish(topic, {"type": "footprint", "tf_seconds": int(timeframe.total_seconds()), "closed": False, "bar": _dto(forming, cfg)})
     return n
 
 

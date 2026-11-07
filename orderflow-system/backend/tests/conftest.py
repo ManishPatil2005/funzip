@@ -1,3 +1,8 @@
+import os
+
+os.environ.setdefault("OFX_NO_DOTENV", "1")  # never load a developer's real backend/.env when tests import ofx.main
+os.environ.setdefault("OFX_PROVIDER", "synthetic")
+
 from datetime import UTC, datetime, timedelta
 
 from ofx.domain import AggressorSide, Trade

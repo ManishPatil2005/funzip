@@ -15,6 +15,7 @@ export interface PaneContext { iid: string; tick: number; tf: string; start: str
 interface Props { instruments: InstrumentDTO[]; initial: PaneConfig; onContext?: (c: PaneContext) => void }
 
 const TFS = ["1m", "5m", "15m", "30m", "1h"];
+const TF_SEC: Record<string, number> = { "1m": 60, "5m": 300, "15m": 900, "30m": 1800, "1h": 3600 };
 const MIN_ROW_PX: Record<Mode, number> = { footprint: 16, candles: 7, tpo: 13 };
 const DEFAULT_OPTS: SceneOpts = { stats: true, delta: true, vwap: true, profile: true, imbalance: true, volume: true, levels: false, cone: false };
 
@@ -45,6 +46,7 @@ export function Workspace({ instruments: baseInstruments, initial, onContext }: 
   const [speed, setSpeed] = useState(1);
   const bars = useMemo(() => (replay === null ? allBars : allBars.slice(0, replay)), [allBars, replay]);
   const [barsKey, setBarsKey] = useState(""); // which (instrument|timeframe|days) the current bars belong to
+  const [coverage, setCoverage] = useState<string | null>(null);
   const [provider, setProvider] = useState(""); const [quality, setQuality] = useState("");
   const [sess, setSess] = useState<SessionProfileDTO[]>([]);
   const [tpo, setTpo] = useState<TPODTO[]>([]);
@@ -61,7 +63,9 @@ export function Workspace({ instruments: baseInstruments, initial, onContext }: 
   const viewKey = useRef("");
 
   const isLive = !!inst?.live;
-  const range = useMemo(() => (isLive ? recentWindow(days, inst?.session ?? "") : lastWeekdays(days)), [days, isLive, inst?.session, iid]); // eslint-disable-line react-hooks/exhaustive-deps
+  const [clock, setClock] = useState(0); // live windows end at "now": refresh them every 5 minutes and on any timeframe/instrument change
+  useEffect(() => { if (!isLive) return; const id = setInterval(() => setClock((c) => c + 1), 5 * 60000); return () => clearInterval(id); }, [isLive]);
+  const range = useMemo(() => (isLive ? recentWindow(days, inst?.session ?? "") : lastWeekdays(days)), [days, isLive, inst?.session, iid, tf, clock]); // eslint-disable-line react-hooks/exhaustive-deps
   // Replay must not leak the future: server-built session profiles / TPO that include bars after the cursor are hidden
   const lastShown = bars[bars.length - 1];
   const sessV = useMemo(() => (replay === null || !lastShown ? sess : sess.filter((x) => Date.parse(x.end) <= Date.parse(lastShown.ts_close))), [sess, replay, lastShown]);
@@ -86,7 +90,7 @@ export function Workspace({ instruments: baseInstruments, initial, onContext }: 
     let stale = false;
     setLoading(true); setErr("");
     fetchFootprint({ iid, tick: resolvedTick, start: range.start, end: range.end, tf, ratio, session })
-      .then((f) => { if (!stale) { setBars(f.bars); setBarsKey(`${iid}|${tf}|${days}`); setProvider(f.provider); setQuality(f.data_quality); } })
+      .then((f) => { if (!stale) { setBars(f.bars); setBarsKey(`${iid}|${tf}|${days}`); setProvider(f.provider); setQuality(f.data_quality); setCoverage(f.coverage_start ?? null); } })
       .catch((e: Error) => { if (!stale) { setErr(e.message); setBars([]); } })
       .finally(() => { if (!stale) setLoading(false); });
     return () => { stale = true; };
@@ -105,15 +109,16 @@ export function Workspace({ instruments: baseInstruments, initial, onContext }: 
   useEffect(() => {
     if (!inst) return;
     return connectWS(`${iid}:footprint`, (m) => {
-      const msg = m as { type?: string; state?: string; bar?: FootprintBarDTO };
-      if (msg.type === "status") { setFeed(msg.state === "disconnected" ? "reconnecting" : msg.state === "giving_up" ? "stopped" : ""); return; }
+      const msg = m as { type?: string; state?: string; tf_seconds?: number; bar?: FootprintBarDTO };
+      if (msg.type === "status") { setFeed(msg.state === "disconnected" ? "reconnecting" : msg.state === "giving_up" || msg.state === "fatal" ? "stopped" : ""); return; }
       if (msg.type !== "footprint" || !msg.bar || Math.abs(msg.bar.tick - resolvedTick) > 1e-9) return;
+      if (msg.tf_seconds !== undefined && msg.tf_seconds !== TF_SEC[tf]) return; // the server ingests one timeframe; never merge it into a different one
       const bar = msg.bar; setLive(true); setFeed("");
       setBars((prev) => { const i = prev.findIndex((b) => b.ts_open === bar.ts_open); if (i < 0) return [...prev, bar].slice(-2000); const n = prev.slice(); n[i] = bar; return n; });
     }, () => setLive(false));
   }, [iid, resolvedTick, inst]);
 
-  useEffect(() => { if (inst) onContext?.({ iid, tick: resolvedTick, tf, start: range.start, end: range.end, session }); }, [iid, resolvedTick, tf, range.start, range.end, session, inst, onContext]);
+  useEffect(() => { if (inst) onContext?.({ iid, tick: resolvedTick, tf, start: range.start, end: replay !== null && lastShown ? lastShown.ts_close : range.end, session }); }, [iid, resolvedTick, tf, range.start, range.end, session, inst, onContext, replay, lastShown?.ts_close]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => { setReplay(null); setPlaying(false); }, [barsKey]); // new data set: leave replay
 
@@ -151,8 +156,8 @@ export function Workspace({ instruments: baseInstruments, initial, onContext }: 
   useEffect(() => { if (bars.length) initView(bars.length, mode, true); }, [mode]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // --- draw
-  const inputs = useRef({ recentOnly, feed, levels, cone, bars, tsMs, mode, opts: effOpts, sess: sessV, tpo: tpoV, inst, resolvedTick, provider, quality, live, loading, err, tf, rowMode, profBusy });
-  inputs.current = { recentOnly, feed, levels, cone, bars, tsMs, mode, opts: effOpts, sess: sessV, tpo: tpoV, inst, resolvedTick, provider, quality, live, loading, err, tf, rowMode, profBusy };
+  const inputs = useRef({ coverage, recentOnly, feed, levels, cone, bars, tsMs, mode, opts: effOpts, sess: sessV, tpo: tpoV, inst, resolvedTick, provider, quality, live, loading, err, tf, rowMode, profBusy });
+  inputs.current = { coverage, recentOnly, feed, levels, cone, bars, tsMs, mode, opts: effOpts, sess: sessV, tpo: tpoV, inst, resolvedTick, provider, quality, live, loading, err, tf, rowMode, profBusy };
 
   const draw = useCallback(() => {
     const c = canvas.current; const I = inputs.current;
@@ -164,6 +169,7 @@ export function Workspace({ instruments: baseInstruments, initial, onContext }: 
     const badges: { text: string; color: string }[] = [];
     if (I.provider === "synthetic") badges.push({ text: "DEMO DATA", color: "#f59e0b" });
     if (I.quality) badges.push(I.quality === "bar_approximated" ? { text: "CANDLES ONLY · NO TICK DATA", color: "#38bdf8" } : { text: `DELTA ${I.quality.toUpperCase().replace("_", " ")}`, color: I.quality === "exact" ? "#22c55e" : "#f59e0b" });
+    if (I.coverage) badges.push({ text: `HISTORY FROM ${new Date(I.coverage).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`, color: "#f59e0b" }); // earlier bars are partial: the provider keeps only recent prints
     if (I.feed) badges.push({ text: I.feed === "stopped" ? "FEED STOPPED" : "RECONNECTING…", color: I.feed === "stopped" ? "#ef4444" : "#f59e0b" });
     if (I.live) badges.push({ text: "LIVE", color: "#22c55e" });
     if ((I.loading || I.profBusy) && I.bars.length) badges.push({ text: "LOADING…", color: "#38bdf8" });
